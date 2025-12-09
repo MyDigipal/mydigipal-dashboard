@@ -150,6 +150,7 @@
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
+        .kpi-grid.hidden { display: none; }
         .kpi-card {
             background: white;
             border-radius: 12px;
@@ -222,28 +223,6 @@
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
         .chart-container.tall { height: 500px; }
-        
-        /* Legend for employee colors */
-        .employee-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 1rem;
-            margin-bottom: 1rem;
-            padding: 1rem;
-            background: #f9f9fc;
-            border-radius: 8px;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .legend-color {
-            width: 16px;
-            height: 16px;
-            border-radius: 4px;
-        }
         
         /* Loading */
         .loading {
@@ -320,8 +299,8 @@
         </div>
         
         <div class="container">
-            <!-- KPI Cards - Order: Revenue, Coût, Profit, Heures -->
-            <div class="kpi-grid">
+            <!-- KPI Cards -->
+            <div class="kpi-grid" id="kpiGrid">
                 <div class="kpi-card">
                     <div class="label">Revenue Total</div>
                     <div class="value blue" id="kpiRevenue">-</div>
@@ -381,7 +360,7 @@
                 </div>
             </div>
             
-            <!-- Hours Panel (NEW) -->
+            <!-- Hours Panel -->
             <div class="panel" id="panel-hours">
                 <h2>⏱️ Répartition des Heures</h2>
                 
@@ -391,7 +370,6 @@
                 </div>
                 
                 <h3>Par Client (split par employé)</h3>
-                <div id="employeeLegend" class="employee-legend"></div>
                 <div class="chart-container tall">
                     <canvas id="hoursByClientChart"></canvas>
                 </div>
@@ -443,6 +421,9 @@
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
         const ALLOWED_EMAILS = ['paul@mydigipal.com'];
         
+        // Internal client to exclude from hours breakdown charts
+        const INTERNAL_CLIENT = 'MyDigipal (interne)';
+        
         // Employee color palette (consistent colors)
         const EMPLOYEE_COLORS = {
             'Alexandre': '#0B6CD9',
@@ -452,7 +433,7 @@
             'Alizée': '#9333ea',
             'Heather': '#dc2626',
             'Alizéa': '#9333ea',
-            'Ali\u00e9za': '#9333ea'
+            'Aliéza': '#9333ea'
         };
         const DEFAULT_COLORS = [
             '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
@@ -657,12 +638,21 @@
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
         
+        // Tab switching with KPI visibility control
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
                 tab.classList.add('active');
                 document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+                
+                // Hide KPIs on Hours tab
+                const kpiGrid = document.getElementById('kpiGrid');
+                if (tab.dataset.tab === 'hours') {
+                    kpiGrid.classList.add('hidden');
+                } else {
+                    kpiGrid.classList.remove('hidden');
+                }
             });
         });
         
@@ -839,11 +829,14 @@
         function renderHoursBreakdownCharts() {
             if (!breakdownData || breakdownData.length === 0) return;
             
+            // Filter out internal client
+            const filteredData = breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT);
+            
             // ========== CHART 1: Hours by Employee (stacked by client) ==========
             const employeeMap = {};
             const allClients = new Set();
             
-            breakdownData.forEach(row => {
+            filteredData.forEach(row => {
                 if (!employeeMap[row.employee_name]) {
                     employeeMap[row.employee_name] = { total: 0, clients: {} };
                 }
@@ -859,7 +852,7 @@
             
             // Sort clients by total hours across all employees
             const clientTotals = {};
-            breakdownData.forEach(row => {
+            filteredData.forEach(row => {
                 clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours;
             });
             const sortedClients = Object.entries(clientTotals)
@@ -910,7 +903,7 @@
             const clientMap = {};
             const allEmployees = new Set();
             
-            breakdownData.forEach(row => {
+            filteredData.forEach(row => {
                 if (!clientMap[row.client_name]) {
                     clientMap[row.client_name] = { total: 0, employees: {} };
                 }
@@ -926,7 +919,7 @@
             
             // Get unique employees sorted by total hours
             const employeeTotals = {};
-            breakdownData.forEach(row => {
+            filteredData.forEach(row => {
                 employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours;
             });
             const sortedEmployeesForLegend = Object.entries(employeeTotals)
@@ -938,15 +931,6 @@
             sortedEmployeesForLegend.forEach((empName, idx) => {
                 employeeColorMap[empName] = EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
             });
-            
-            // Render employee legend
-            const legendContainer = document.getElementById('employeeLegend');
-            legendContainer.innerHTML = sortedEmployeesForLegend.map(empName => `
-                <div class="legend-item">
-                    <div class="legend-color" style="background: ${employeeColorMap[empName]}"></div>
-                    <span>${empName}</span>
-                </div>
-            `).join('');
             
             // Create datasets for Chart 2 (one dataset per employee)
             const datasetsForClientChart = sortedEmployeesForLegend.map(empName => ({
@@ -968,7 +952,10 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { display: false }, // Using custom legend above
+                        legend: { 
+                            position: 'bottom',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        },
                         tooltip: {
                             callbacks: {
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
