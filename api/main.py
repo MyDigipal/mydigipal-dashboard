@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.4 - Added client timeline endpoints
+# Dashboard API v1.5 - Added budget progress endpoint for Planning tab
 
 app = Flask(__name__)
 CORS(app)
@@ -19,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.4"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.5"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -159,6 +159,185 @@ def get_client_timeline(client_id):
             "type": type(e).__name__,
             "traceback": traceback.format_exc()
         }), 500
+
+@app.route('/api/budget-progress')
+def get_budget_progress():
+    """Get budget vs actual hours for the selected month with pace calculation"""
+    try:
+        # Get month parameter (default to current month)
+        month = request.args.get('month')
+        if not month:
+            month = datetime.now().strftime('%Y-%m')
+        
+        # Parse month to get date range
+        year, mon = month.split('-')
+        month_start = f"{year}-{mon}-01"
+        
+        # Calculate month end
+        if int(mon) == 12:
+            next_year = int(year) + 1
+            next_month = 1
+        else:
+            next_year = int(year)
+            next_month = int(mon) + 1
+        month_end = f"{next_year}-{next_month:02d}-01"
+        
+        # Calculate progress through month
+        today = datetime.now()
+        month_start_date = datetime(int(year), int(mon), 1)
+        if int(mon) == 12:
+            month_end_date = datetime(int(year) + 1, 1, 1)
+        else:
+            month_end_date = datetime(int(year), int(mon) + 1, 1)
+        
+        total_days = (month_end_date - month_start_date).days
+        days_passed = min((today - month_start_date).days + 1, total_days)
+        month_progress = days_passed / total_days if total_days > 0 else 1.0
+        
+        params = [
+            bigquery.ScalarQueryParameter("month", "STRING", month),
+            bigquery.ScalarQueryParameter("month_start", "DATE", month_start),
+            bigquery.ScalarQueryParameter("month_end", "DATE", month_end)
+        ]
+        
+        query = """
+        WITH budgets AS (
+          SELECT 
+            b.client_id,
+            COALESCE(c.client_name, b.client_id) as client_name,
+            b.budgeted_hours,
+            b.budget_type,
+            b.notes
+          FROM `mydigipal.staging.client_monthly_budgets` b
+          LEFT JOIN `mydigipal.staging.dim_clients` c ON b.client_id = c.client_id
+          WHERE b.month = @month
+        ),
+        actuals AS (
+          SELECT 
+            t.client_id,
+            ROUND(SUM(t.hours), 1) as actual_hours
+          FROM `mydigipal.staging.fct_timesheets` t
+          WHERE t.date >= @month_start AND t.date < @month_end
+          GROUP BY 1
+        ),
+        employee_breakdown AS (
+          SELECT 
+            t.client_id,
+            t.employee_id,
+            COALESCE(e.employee_name, t.employee_id) as employee_name,
+            ROUND(SUM(t.hours), 1) as hours
+          FROM `mydigipal.staging.fct_timesheets` t
+          LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+          WHERE t.date >= @month_start AND t.date < @month_end
+          GROUP BY 1, 2, 3
+        )
+        SELECT 
+          b.client_id,
+          b.client_name,
+          b.budgeted_hours,
+          b.budget_type,
+          b.notes,
+          COALESCE(a.actual_hours, 0) as actual_hours
+        FROM budgets b
+        LEFT JOIN actuals a ON b.client_id = a.client_id
+        ORDER BY b.budgeted_hours DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        rows = client.query(query, job_config=job_config).result()
+        
+        result = []
+        for row in rows:
+            r = dict(row)
+            budgeted = r['budgeted_hours']
+            actual = r['actual_hours']
+            
+            # Calculate remaining hours
+            r['remaining_hours'] = round(budgeted - actual, 1)
+            
+            # Calculate expected hours at this point in month
+            expected_at_pace = round(budgeted * month_progress, 1)
+            r['expected_hours'] = expected_at_pace
+            
+            # Calculate pace status
+            # If actual > expected, we're ahead (bad - spending too fast)
+            # If actual < expected, we're behind (good - on track or under)
+            pace_diff = actual - expected_at_pace
+            r['pace_diff'] = round(pace_diff, 1)
+            
+            if actual >= budgeted:
+                r['status'] = 'exceeded'
+            elif pace_diff > budgeted * 0.1:  # More than 10% ahead of pace
+                r['status'] = 'warning'
+            else:
+                r['status'] = 'ok'
+            
+            # Progress percentage
+            r['progress_pct'] = round((actual / budgeted * 100) if budgeted > 0 else 0, 0)
+            
+            result.append(r)
+        
+        # Get employee breakdown for each client
+        query_breakdown = """
+        SELECT 
+          t.client_id,
+          t.employee_id,
+          COALESCE(e.employee_name, t.employee_id) as employee_name,
+          ROUND(SUM(t.hours), 1) as hours
+        FROM `mydigipal.staging.fct_timesheets` t
+        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        WHERE t.date >= @month_start AND t.date < @month_end
+        GROUP BY 1, 2, 3
+        HAVING SUM(t.hours) > 0
+        ORDER BY 1, 4 DESC
+        """
+        breakdown_rows = client.query(query_breakdown, job_config=job_config).result()
+        
+        # Group by client
+        breakdown_by_client = {}
+        for row in breakdown_rows:
+            cid = row['client_id']
+            if cid not in breakdown_by_client:
+                breakdown_by_client[cid] = []
+            breakdown_by_client[cid].append({
+                'employee_id': row['employee_id'],
+                'employee_name': row['employee_name'],
+                'hours': row['hours']
+            })
+        
+        # Add breakdown to each client
+        for r in result:
+            r['employees'] = breakdown_by_client.get(r['client_id'], [])
+        
+        return jsonify({
+            "month": month,
+            "days_in_month": total_days,
+            "days_passed": days_passed,
+            "month_progress_pct": round(month_progress * 100, 0),
+            "clients": result
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }), 500
+
+@app.route('/api/budget-months')
+def get_budget_months():
+    """Get list of months that have budget data"""
+    try:
+        query = """
+        SELECT DISTINCT month
+        FROM `mydigipal.staging.client_monthly_budgets`
+        ORDER BY month DESC
+        """
+        rows = client.query(query).result()
+        months = [row['month'] for row in rows]
+        return jsonify(months)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/monthly')
 def get_monthly():
