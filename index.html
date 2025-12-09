@@ -220,17 +220,6 @@
         
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
-        .chart-row { display: grid; grid-template-columns: 3fr 1fr; gap: 1.5rem; align-items: start; }
-        
-        /* Employee selector */
-        .employee-select {
-            padding: 0.5rem 1rem;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.9rem;
-            margin-bottom: 1rem;
-            min-width: 200px;
-        }
         
         /* Loading */
         .loading {
@@ -254,7 +243,6 @@
         /* Responsive */
         @media (max-width: 768px) {
             .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-            .chart-row { grid-template-columns: 1fr; }
             .date-filter-bar { padding: 0.75rem 1rem; }
         }
     </style>
@@ -371,17 +359,8 @@
             <!-- Team Panel -->
             <div class="panel" id="panel-team">
                 <h2>Répartition par Employé</h2>
-                <div class="chart-row">
-                    <div class="chart-container">
-                        <canvas id="teamChart"></canvas>
-                    </div>
-                    <div>
-                        <h3 style="margin-bottom: 1rem;">Filtrer par employé</h3>
-                        <select class="employee-select" id="employeeSelect">
-                            <option value="">Tous les employés</option>
-                        </select>
-                        <div id="employeeDetail"></div>
-                    </div>
+                <div class="chart-container">
+                    <canvas id="teamChart"></canvas>
                 </div>
                 
                 <table id="teamTable">
@@ -433,25 +412,6 @@
             const monthIndex = parseInt(month, 10) - 1;
             const shortYear = year.slice(-2);
             return `${MONTH_NAMES_FR[monthIndex]} ${shortYear}`;
-        }
-        
-        // ============== CLIENT COLORS (consistent across charts) ==============
-        const CLIENT_COLORS = {};
-        const COLOR_PALETTE = [
-            '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
-            '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c',
-            '#059669', '#7c3aed', '#0284c7', '#b91c1c', '#4f46e5',
-            '#0d9488', '#ca8a04', '#be185d', '#1d4ed8', '#15803d',
-            '#7c2d12', '#134e4a', '#581c87', '#0c4a6e', '#365314'
-        ];
-        let colorIndex = 0;
-        
-        function getClientColor(clientName) {
-            if (!CLIENT_COLORS[clientName]) {
-                CLIENT_COLORS[clientName] = COLOR_PALETTE[colorIndex % COLOR_PALETTE.length];
-                colorIndex++;
-            }
-            return CLIENT_COLORS[clientName];
         }
         
         // ============== DATE FILTER STATE ==============
@@ -626,7 +586,6 @@
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
-        let employeesBreakdown = [];
         
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
@@ -665,14 +624,10 @@
             document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
             
-            document.getElementById('employeeSelect').value = '';
-            document.getElementById('employeeDetail').innerHTML = '';
-            
-            [clientsData, monthlyData, employeesData, employeesBreakdown] = await Promise.all([
+            [clientsData, monthlyData, employeesData] = await Promise.all([
                 fetchData('/api/clients'),
                 fetchData('/api/monthly'),
-                fetchData('/api/employees'),
-                fetchData('/api/employees-breakdown')
+                fetchData('/api/employees')
             ]);
             
             if (!clientsData) return;
@@ -812,116 +767,41 @@
             });
         }
         
-        function renderTeamChart(filterEmployee = null) {
-            if (!employeesBreakdown || employeesBreakdown.length === 0) return;
+        function renderTeamChart() {
+            if (!employeesData || employeesData.length === 0) return;
             const ctx = document.getElementById('teamChart').getContext('2d');
             
-            // Get all unique clients and employees
-            const allClients = [...new Set(employeesBreakdown.map(e => e.client_name))];
-            let employees = [...new Set(employeesBreakdown.map(e => e.employee_name))];
-            
-            // Sort employees by total hours
-            const employeeTotals = {};
-            employeesBreakdown.forEach(e => {
-                employeeTotals[e.employee_name] = (employeeTotals[e.employee_name] || 0) + e.hours;
-            });
-            employees.sort((a, b) => employeeTotals[b] - employeeTotals[a]);
-            
-            // Filter if specific employee selected
-            if (filterEmployee) {
-                employees = employees.filter(e => e === filterEmployee);
-            }
-            
-            // Create datasets for each client
-            const datasets = allClients.map(client => ({
-                label: client,
-                data: employees.map(emp => {
-                    const item = employeesBreakdown.find(e => e.employee_name === emp && e.client_name === client);
-                    return item ? item.hours : 0;
-                }),
-                backgroundColor: getClientColor(client)
-            }));
-            
+            // Simple bar chart - one bar per employee showing total hours
             if (teamChart) teamChart.destroy();
             teamChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: employees,
-                    datasets: datasets
+                    labels: employeesData.map(e => e.employee_name),
+                    datasets: [{
+                        label: 'Heures',
+                        data: employeesData.map(e => e.total_hours),
+                        backgroundColor: '#0B6CD9'
+                    }]
                 },
                 options: {
+                    indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: { boxWidth: 12, padding: 6, font: { size: 10 } }
-                        },
+                        legend: { display: false },
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    if (context.raw === 0) return null;
-                                    return context.dataset.label + ': ' + context.raw + 'h';
+                                    return context.raw + ' heures';
                                 }
                             }
                         }
                     },
                     scales: {
-                        x: { stacked: true },
-                        y: { 
-                            stacked: true,
-                            ticks: { callback: v => v + 'h' }
-                        }
+                        x: { ticks: { callback: v => v + 'h' } }
                     }
                 }
             });
-            
-            // Populate employee selector
-            const select = document.getElementById('employeeSelect');
-            if (!filterEmployee) {
-                select.innerHTML = '<option value="">Tous les employés</option>' +
-                    employees.map(e => `<option value="${e}">${e}</option>`).join('');
-            }
-            select.onchange = () => {
-                const selected = select.value;
-                renderTeamChart(selected || null);
-                updateEmployeeDetail(selected);
-            };
-        }
-        
-        function updateEmployeeDetail(employeeName) {
-            const container = document.getElementById('employeeDetail');
-            
-            if (!employeeName) {
-                container.innerHTML = '';
-                return;
-            }
-            
-            // Get breakdown for this employee
-            const breakdown = employeesBreakdown
-                .filter(e => e.employee_name === employeeName)
-                .sort((a, b) => b.hours - a.hours);
-            
-            const totalHours = breakdown.reduce((sum, b) => sum + b.hours, 0);
-            
-            container.innerHTML = `
-                <div style="margin-top: 1rem; padding: 1rem; background: #f3f4f6; border-radius: 8px;">
-                    <strong>${employeeName}</strong>
-                    <div style="font-size: 1.5rem; font-weight: 700; color: #211F54;">${totalHours}h</div>
-                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
-                        ${breakdown.slice(0, 8).map(b => `
-                            <div style="display: flex; justify-content: space-between; margin: 0.25rem 0;">
-                                <span style="display: flex; align-items: center; gap: 0.5rem;">
-                                    <span style="width: 10px; height: 10px; background: ${getClientColor(b.client_name)}; border-radius: 2px;"></span>
-                                    ${b.client_name}
-                                </span>
-                                <span>${b.hours}h</span>
-                            </div>
-                        `).join('')}
-                        ${breakdown.length > 8 ? `<div style="color: #999;">+ ${breakdown.length - 8} autres...</div>` : ''}
-                    </div>
-                </div>
-            `;
         }
         
         function renderTeamTable() {
