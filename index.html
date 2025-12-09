@@ -221,6 +221,59 @@
             cursor: pointer;
         }
         
+        /* Client selector */
+        .client-selector {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: #f3f4f6;
+            border-radius: 8px;
+        }
+        .client-selector label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #211F54;
+        }
+        .client-selector select {
+            flex: 1;
+            max-width: 400px;
+            padding: 0.75rem 1rem;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 1rem;
+            background: white;
+            cursor: pointer;
+        }
+        .client-selector select:focus {
+            outline: none;
+            border-color: #0B6CD9;
+        }
+        .client-total-hours {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #0B6CD9;
+            margin-left: auto;
+        }
+        
+        /* Charts grid for client detail */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+        }
+        .charts-grid .chart-box {
+            background: #fafafa;
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        .charts-grid .chart-box h4 {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 1rem;
+        }
+        
         /* Tables */
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th { text-align: left; padding: 0.75rem; background: #EFF0F6; font-weight: 600; }
@@ -248,6 +301,7 @@
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
         .chart-container.tall { height: 500px; }
+        .chart-container.medium { height: 350px; }
         
         /* Loading */
         .loading {
@@ -268,7 +322,18 @@
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: #666;
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 1rem; }
+        
         /* Responsive */
+        @media (max-width: 1024px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
         @media (max-width: 768px) {
             .kpi-grid { grid-template-columns: repeat(2, 1fr); }
             .date-filter-bar { padding: 0.75rem 1rem; }
@@ -349,6 +414,7 @@
                 <button class="tab active" data-tab="clients">📊 Rentabilité</button>
                 <button class="tab" data-tab="monthly">📈 Évolution</button>
                 <button class="tab" data-tab="hours">⏱️ Heures</button>
+                <button class="tab" data-tab="clientdetail">🏢 Client</button>
                 <button class="tab" data-tab="team">👥 Équipe</button>
                 <button class="tab" data-tab="alerts">⚠️ Alertes</button>
             </div>
@@ -405,6 +471,53 @@
                 <h3>Par Client (split par employé)</h3>
                 <div class="chart-container tall">
                     <canvas id="hoursByClientChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Client Detail Panel -->
+            <div class="panel" id="panel-clientdetail">
+                <h2>🏢 Détail par Client</h2>
+                
+                <div class="client-selector">
+                    <label>Sélectionner un client :</label>
+                    <select id="clientSelect" onchange="loadClientTimeline()">
+                        <option value="">-- Choisir un client --</option>
+                    </select>
+                    <div class="client-total-hours" id="clientTotalHours"></div>
+                </div>
+                
+                <div id="clientDetailContent" style="display: none;">
+                    <div class="charts-grid">
+                        <div class="chart-box">
+                            <h4>📅 Évolution journalière des heures</h4>
+                            <div class="chart-container medium">
+                                <canvas id="clientTimelineChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-box">
+                            <h4>👥 Répartition par employé</h4>
+                            <div class="chart-container medium">
+                                <canvas id="clientEmployeesChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h3>Détail par employé</h3>
+                    <table id="clientEmployeesTable">
+                        <thead>
+                            <tr>
+                                <th>Employé</th>
+                                <th class="text-right">Heures</th>
+                                <th class="text-right">% du total</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                
+                <div id="clientDetailEmpty" class="empty-state">
+                    <div class="icon">🏢</div>
+                    <p>Sélectionnez un client pour voir le détail des heures travaillées</p>
                 </div>
             </div>
             
@@ -492,6 +605,12 @@
             const monthIndex = parseInt(month, 10) - 1;
             const shortYear = year.slice(-2);
             return `${MONTH_NAMES_FR[monthIndex]} ${shortYear}`;
+        }
+        
+        function formatDateFR(dateStr) {
+            if (!dateStr) return '';
+            const [year, month, day] = dateStr.split('-');
+            return `${parseInt(day, 10)}/${month}`;
         }
         
         // ============== DATE FILTER STATE ==============
@@ -663,10 +782,12 @@
         // ============== DASHBOARD ==============
         let clientsChart, monthlyChart, hoursChart, teamChart;
         let hoursByEmployeeChart, hoursByClientChart;
+        let clientTimelineChart, clientEmployeesChart;
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
         let breakdownData = [];
+        let clientsWithHours = [];
         
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
@@ -679,12 +800,17 @@
                 tab.classList.add('active');
                 document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
                 
-                // Hide KPIs on Hours tab
+                // Hide KPIs on Hours and Client Detail tabs
                 const kpiGrid = document.getElementById('kpiGrid');
-                if (tab.dataset.tab === 'hours') {
+                if (tab.dataset.tab === 'hours' || tab.dataset.tab === 'clientdetail') {
                     kpiGrid.classList.add('hidden');
                 } else {
                     kpiGrid.classList.remove('hidden');
+                }
+                
+                // Load client list when switching to client detail tab
+                if (tab.dataset.tab === 'clientdetail') {
+                    loadClientsWithHours();
                 }
             });
         });
@@ -713,6 +839,12 @@
             document.getElementById('kpiCost').textContent = '...';
             document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
+            
+            // Reset client detail when period changes
+            document.getElementById('clientSelect').value = '';
+            document.getElementById('clientDetailContent').style.display = 'none';
+            document.getElementById('clientDetailEmpty').style.display = 'block';
+            document.getElementById('clientTotalHours').textContent = '';
             
             [clientsData, monthlyData, employeesData, breakdownData] = await Promise.all([
                 fetchData('/api/clients'),
@@ -743,8 +875,175 @@
             renderTeamTable();
             renderHoursBreakdownCharts();
             loadAlerts();
+            
+            // Pre-load clients with hours for the client detail tab
+            loadClientsWithHours();
         }
         
+        // ============== CLIENT DETAIL TAB ==============
+        async function loadClientsWithHours() {
+            clientsWithHours = await fetchData('/api/clients-with-hours');
+            if (!clientsWithHours) return;
+            
+            const select = document.getElementById('clientSelect');
+            const currentValue = select.value;
+            
+            // Keep current selection if still valid
+            select.innerHTML = '<option value="">-- Choisir un client --</option>' + 
+                clientsWithHours.map(c => 
+                    `<option value="${c.client_id}" ${c.client_id === currentValue ? 'selected' : ''}>
+                        ${c.client_name} (${c.total_hours}h)
+                    </option>`
+                ).join('');
+        }
+        
+        async function loadClientTimeline() {
+            const clientId = document.getElementById('clientSelect').value;
+            
+            if (!clientId) {
+                document.getElementById('clientDetailContent').style.display = 'none';
+                document.getElementById('clientDetailEmpty').style.display = 'block';
+                document.getElementById('clientTotalHours').textContent = '';
+                return;
+            }
+            
+            document.getElementById('clientDetailEmpty').style.display = 'none';
+            document.getElementById('clientDetailContent').style.display = 'block';
+            
+            const data = await fetchData(`/api/client-timeline/${clientId}`);
+            if (!data) return;
+            
+            // Calculate total hours
+            const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
+            document.getElementById('clientTotalHours').textContent = `Total: ${totalHours.toFixed(1)}h`;
+            
+            renderClientTimelineChart(data);
+            renderClientEmployeesChart(data);
+            renderClientEmployeesTable(data);
+        }
+        
+        function renderClientTimelineChart(data) {
+            const ctx = document.getElementById('clientTimelineChart').getContext('2d');
+            
+            // Get unique dates and employees
+            const dates = [...new Set(data.daily.map(d => d.date))].sort();
+            const employees = [...new Set(data.daily.map(d => d.employee_name))];
+            
+            // Build datasets (one per employee)
+            const datasets = employees.map((empName, idx) => {
+                const empData = dates.map(date => {
+                    const entry = data.daily.find(d => d.date === date && d.employee_name === empName);
+                    return entry ? entry.hours : 0;
+                });
+                
+                return {
+                    label: empName,
+                    data: empData,
+                    backgroundColor: EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
+                };
+            });
+            
+            if (clientTimelineChart) clientTimelineChart.destroy();
+            clientTimelineChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: dates.map(formatDateFR),
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            stacked: true,
+                            ticks: { maxRotation: 45, minRotation: 45 }
+                        },
+                        y: { 
+                            stacked: true,
+                            ticks: { callback: v => v + 'h' }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderClientEmployeesChart(data) {
+            const ctx = document.getElementById('clientEmployeesChart').getContext('2d');
+            
+            // Sort by hours desc
+            const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
+            
+            const colors = sortedTotals.map((t, idx) => 
+                EMPLOYEE_COLORS[t.employee_name] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
+            );
+            
+            if (clientEmployeesChart) clientEmployeesChart.destroy();
+            clientEmployeesChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: sortedTotals.map(t => t.employee_name),
+                    datasets: [{
+                        data: sortedTotals.map(t => t.total_hours),
+                        backgroundColor: colors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => {
+                                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                    const pct = Math.round(ctx.raw / total * 100);
+                                    return `${ctx.label}: ${ctx.raw}h (${pct}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function renderClientEmployeesTable(data) {
+            const tbody = document.querySelector('#clientEmployeesTable tbody');
+            const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
+            
+            // Sort by hours desc
+            const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
+            
+            tbody.innerHTML = sortedTotals.map(t => {
+                const pct = totalHours > 0 ? Math.round(t.total_hours / totalHours * 100) : 0;
+                const color = EMPLOYEE_COLORS[t.employee_name] || '#666';
+                return `
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 2px; margin-right: 8px;"></span>
+                            <strong>${t.employee_name}</strong>
+                        </td>
+                        <td class="text-right">${t.total_hours.toFixed(1)}h</td>
+                        <td class="text-right">${pct}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+        
+        // ============== OTHER CHARTS ==============
         function renderClientsChart() {
             const top15 = clientsData.slice(0, 15);
             const ctx = document.getElementById('clientsChart').getContext('2d');
