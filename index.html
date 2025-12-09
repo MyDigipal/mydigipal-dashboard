@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyDigipal Dashboard</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,6 +14,39 @@
             color: #211F54;
             min-height: 100vh;
         }
+        
+        /* Login Screen */
+        .login-screen {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #211F54 0%, #0B6CD9 100%);
+        }
+        .login-box {
+            background: white;
+            padding: 3rem;
+            border-radius: 16px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+        }
+        .login-box h1 { color: #211F54; margin-bottom: 0.5rem; }
+        .login-box p { color: #666; margin-bottom: 2rem; }
+        .login-box .logo { font-size: 3rem; margin-bottom: 1rem; }
+        .login-error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 1rem;
+            display: none;
+        }
+        
+        /* Dashboard (hidden by default) */
+        .dashboard { display: none; }
+        .dashboard.visible { display: block; }
+        
         .header {
             background: #211F54;
             color: white;
@@ -23,6 +57,27 @@
         }
         .header h1 { font-size: 1.5rem; font-weight: 600; }
         .header .subtitle { opacity: 0.7; font-size: 0.9rem; }
+        .header .user-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .header .user-info img {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+        }
+        .header .logout-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .header .logout-btn:hover { background: rgba(255,255,255,0.3); }
+        
         .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
         
         /* KPI Cards */
@@ -139,140 +194,222 @@
     </style>
 </head>
 <body>
-    <div class="header">
-        <div>
+    <!-- Login Screen -->
+    <div class="login-screen" id="loginScreen">
+        <div class="login-box">
+            <div class="logo">📊</div>
             <h1>MyDigipal Dashboard</h1>
-            <div class="subtitle">Rentabilité & Performance</div>
+            <p>Connectez-vous pour accéder au tableau de bord</p>
+            <div id="googleSignIn"></div>
+            <div class="login-error" id="loginError">
+                Accès refusé. Seuls les utilisateurs autorisés peuvent accéder.
+            </div>
         </div>
-        <div class="subtitle" id="lastUpdate">Chargement...</div>
     </div>
-    
-    <div class="container">
-        <!-- KPI Cards -->
-        <div class="kpi-grid">
-            <div class="kpi-card">
-                <div class="label">Profit Total</div>
-                <div class="value green" id="kpiProfit">-</div>
+
+    <!-- Dashboard (hidden until login) -->
+    <div class="dashboard" id="dashboard">
+        <div class="header">
+            <div>
+                <h1>MyDigipal Dashboard</h1>
+                <div class="subtitle">Rentabilité & Performance</div>
             </div>
-            <div class="kpi-card">
-                <div class="label">Revenue Total</div>
-                <div class="value blue" id="kpiRevenue">-</div>
-            </div>
-            <div class="kpi-card">
-                <div class="label">Marge Moyenne</div>
-                <div class="value purple" id="kpiMargin">-</div>
-            </div>
-            <div class="kpi-card">
-                <div class="label">Heures Facturables</div>
-                <div class="value orange" id="kpiHours">-</div>
+            <div class="user-info">
+                <span id="userName"></span>
+                <img id="userPhoto" src="" alt="">
+                <button class="logout-btn" onclick="logout()">Déconnexion</button>
             </div>
         </div>
         
-        <!-- Tabs -->
-        <div class="tabs">
-            <button class="tab active" data-tab="clients">📊 Rentabilité Clients</button>
-            <button class="tab" data-tab="monthly">📈 Évolution Mensuelle</button>
-            <button class="tab" data-tab="team">👥 Équipe</button>
-            <button class="tab" data-tab="alerts">⚠️ Alertes</button>
-        </div>
-        
-        <!-- Clients Panel -->
-        <div class="panel active" id="panel-clients">
-            <h2>Rentabilité par Client</h2>
-            <div class="chart-container">
-                <canvas id="clientsChart"></canvas>
+        <div class="container">
+            <!-- KPI Cards -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="label">Profit Total</div>
+                    <div class="value green" id="kpiProfit">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Revenue Total</div>
+                    <div class="value blue" id="kpiRevenue">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Marge Moyenne</div>
+                    <div class="value purple" id="kpiMargin">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">Heures Facturables</div>
+                    <div class="value orange" id="kpiHours">-</div>
+                </div>
             </div>
-            <table id="clientsTable">
-                <thead>
-                    <tr>
-                        <th>Client</th>
-                        <th class="text-right">Heures</th>
-                        <th class="text-right">Coût</th>
-                        <th class="text-right">Revenue</th>
-                        <th class="text-right">Profit</th>
-                        <th class="text-right">Marge</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        
-        <!-- Monthly Panel -->
-        <div class="panel" id="panel-monthly">
-            <h2>Évolution Mensuelle 2025</h2>
-            <div class="chart-container">
-                <canvas id="monthlyChart"></canvas>
+            
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="clients">📊 Rentabilité Clients</button>
+                <button class="tab" data-tab="monthly">📈 Évolution Mensuelle</button>
+                <button class="tab" data-tab="team">👥 Équipe</button>
+                <button class="tab" data-tab="alerts">⚠️ Alertes</button>
             </div>
-            <div class="chart-container" style="height: 250px;">
-                <canvas id="hoursChart"></canvas>
-            </div>
-        </div>
-        
-        <!-- Team Panel -->
-        <div class="panel" id="panel-team">
-            <h2>Répartition par Employé</h2>
-            <div class="chart-row">
+            
+            <!-- Clients Panel -->
+            <div class="panel active" id="panel-clients">
+                <h2>Rentabilité par Client</h2>
                 <div class="chart-container">
-                    <canvas id="teamChart"></canvas>
+                    <canvas id="clientsChart"></canvas>
                 </div>
-                <div>
-                    <h3 style="margin-bottom: 1rem;">Détail par employé</h3>
-                    <select class="employee-select" id="employeeSelect">
-                        <option value="">Sélectionner un employé...</option>
-                    </select>
-                    <div id="employeeDetail"></div>
+                <table id="clientsTable">
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th class="text-right">Heures</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Revenue</th>
+                            <th class="text-right">Profit</th>
+                            <th class="text-right">Marge</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <!-- Monthly Panel -->
+            <div class="panel" id="panel-monthly">
+                <h2>Évolution Mensuelle 2025</h2>
+                <div class="chart-container">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+                <div class="chart-container" style="height: 250px;">
+                    <canvas id="hoursChart"></canvas>
                 </div>
             </div>
-            <table id="teamTable">
-                <thead>
-                    <tr>
-                        <th>Employé</th>
-                        <th class="text-right">Heures</th>
-                        <th class="text-right">Coût</th>
-                        <th class="text-right">Clients</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-        
-        <!-- Alerts Panel -->
-        <div class="panel" id="panel-alerts">
-            <h2>Clients à Surveiller</h2>
-            <table id="alertsTable">
-                <thead>
-                    <tr>
-                        <th>Client</th>
-                        <th>Alerte</th>
-                        <th class="text-right">Heures</th>
-                        <th class="text-right">Coût</th>
-                        <th class="text-right">Revenue</th>
-                        <th class="text-right">Profit</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
+            
+            <!-- Team Panel -->
+            <div class="panel" id="panel-team">
+                <h2>Répartition par Employé</h2>
+                <div class="chart-row">
+                    <div class="chart-container">
+                        <canvas id="teamChart"></canvas>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 1rem;">Détail par employé</h3>
+                        <select class="employee-select" id="employeeSelect">
+                            <option value="">Sélectionner un employé...</option>
+                        </select>
+                        <div id="employeeDetail"></div>
+                    </div>
+                </div>
+                <table id="teamTable">
+                    <thead>
+                        <tr>
+                            <th>Employé</th>
+                            <th class="text-right">Heures</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Clients</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <!-- Alerts Panel -->
+            <div class="panel" id="panel-alerts">
+                <h2>Clients à Surveiller</h2>
+                <table id="alertsTable">
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Alerte</th>
+                            <th class="text-right">Heures</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Revenue</th>
+                            <th class="text-right">Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <script>
-        // Configuration - UPDATE THIS after deploying the API
+        // ============== CONFIGURATION ==============
         const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
+        const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
+        const ALLOWED_EMAILS = ['paul@mydigipal.com'];
         
-        // Charts instances
+        // ============== AUTHENTICATION ==============
+        let currentUser = null;
+        
+        function handleCredentialResponse(response) {
+            const payload = parseJwt(response.credential);
+            
+            if (ALLOWED_EMAILS.includes(payload.email)) {
+                currentUser = payload;
+                sessionStorage.setItem('user', JSON.stringify(payload));
+                showDashboard();
+            } else {
+                document.getElementById('loginError').style.display = 'block';
+                console.log('Access denied for:', payload.email);
+            }
+        }
+        
+        function parseJwt(token) {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => 
+                '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+            ).join(''));
+            return JSON.parse(jsonPayload);
+        }
+        
+        function showDashboard() {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('dashboard').classList.add('visible');
+            document.getElementById('userName').textContent = currentUser.name;
+            document.getElementById('userPhoto').src = currentUser.picture;
+            init();
+        }
+        
+        function logout() {
+            sessionStorage.removeItem('user');
+            currentUser = null;
+            location.reload();
+        }
+        
+        function checkExistingSession() {
+            const stored = sessionStorage.getItem('user');
+            if (stored) {
+                currentUser = JSON.parse(stored);
+                if (ALLOWED_EMAILS.includes(currentUser.email)) {
+                    showDashboard();
+                    return true;
+                }
+            }
+            return false;
+        }
+        
+        // Initialize Google Sign-In
+        window.onload = function() {
+            if (checkExistingSession()) return;
+            
+            google.accounts.id.initialize({
+                client_id: GOOGLE_CLIENT_ID,
+                callback: handleCredentialResponse
+            });
+            google.accounts.id.renderButton(
+                document.getElementById('googleSignIn'),
+                { theme: 'outline', size: 'large', width: 300 }
+            );
+        };
+        
+        // ============== DASHBOARD ==============
         let clientsChart, monthlyChart, hoursChart, teamChart;
-        
-        // Data storage
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
         
-        // Formatting
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
-        const formatPercent = (n) => (n || 0) + '%';
         
-        // Tab switching
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -282,7 +419,6 @@
             });
         });
         
-        // Fetch data
         async function fetchData(endpoint) {
             try {
                 const res = await fetch(API_URL + endpoint);
@@ -294,23 +430,15 @@
             }
         }
         
-        // Initialize dashboard
         async function init() {
-            document.getElementById('lastUpdate').textContent = 'Chargement...';
-            
-            // Fetch all data
             [clientsData, monthlyData, employeesData] = await Promise.all([
                 fetchData('/api/clients'),
                 fetchData('/api/monthly'),
                 fetchData('/api/employees')
             ]);
             
-            if (!clientsData) {
-                document.getElementById('lastUpdate').textContent = 'Erreur de connexion';
-                return;
-            }
+            if (!clientsData) return;
             
-            // Update KPIs
             const totals = clientsData.reduce((acc, c) => ({
                 profit: acc.profit + (c.profit || 0),
                 revenue: acc.revenue + (c.revenue || 0),
@@ -322,15 +450,12 @@
             document.getElementById('kpiMargin').textContent = Math.round(totals.profit / totals.revenue * 100) + '%';
             document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
             
-            // Render charts and tables
             renderClientsChart();
             renderClientsTable();
             renderMonthlyChart();
             renderTeamChart();
             renderTeamTable();
             loadAlerts();
-            
-            document.getElementById('lastUpdate').textContent = 'Mis à jour: ' + new Date().toLocaleString('fr-FR');
         }
         
         function renderClientsChart() {
@@ -440,7 +565,6 @@
                 }
             });
             
-            // Populate employee select
             const select = document.getElementById('employeeSelect');
             select.innerHTML = '<option value="">Sélectionner un employé...</option>' +
                 employeesData.map(e => `<option value="${e.employee_id}">${e.employee_name}</option>`).join('');
@@ -475,7 +599,6 @@
                 return;
             }
             
-            // Group by month
             const byMonth = {};
             data.forEach(d => {
                 if (!byMonth[d.month]) byMonth[d.month] = [];
@@ -509,9 +632,6 @@
                 </tr>
             `).join('');
         }
-        
-        // Start
-        init();
     </script>
 </body>
 </html>
