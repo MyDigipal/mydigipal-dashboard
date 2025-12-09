@@ -5,26 +5,24 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.2 - With error handling for debugging
+# Dashboard API v1.3 - Fixed ORDER BY aggregation error
 
 app = Flask(__name__)
-CORS(app)  # Allow frontend to call API
+CORS(app)
 
 client = bigquery.Client(project='mydigipal')
 
 def get_date_params():
-    """Parse date_from and date_to from query params"""
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
     return date_from, date_to
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.2"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.3"})
 
 @app.route('/api/clients')
 def get_clients():
-    """Get profitability by client with optional date filter"""
     date_from, date_to = get_date_params()
     
     params = []
@@ -50,7 +48,7 @@ def get_clients():
     WHERE client_id != 'mydigipal' {date_filter}
     GROUP BY 1, 2
     HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
-    ORDER BY profit DESC
+    ORDER BY 6 DESC
     """
     
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
@@ -59,7 +57,6 @@ def get_clients():
 
 @app.route('/api/monthly')
 def get_monthly():
-    """Get monthly totals with optional date filter"""
     date_from, date_to = get_date_params()
     
     params = []
@@ -94,7 +91,6 @@ def get_monthly():
 
 @app.route('/api/employees')
 def get_employees():
-    """Get hours by employee with optional date filter - INCLUDES MyDigipal hours"""
     date_from, date_to = get_date_params()
     
     params = []
@@ -107,7 +103,6 @@ def get_employees():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    # Include ALL clients including mydigipal for total hours worked
     query = f"""
     SELECT 
       employee_id,
@@ -118,7 +113,7 @@ def get_employees():
     FROM `mydigipal.marts.employee_workload`
     WHERE 1=1 {date_filter}
     GROUP BY 1, 2
-    ORDER BY total_hours DESC
+    ORDER BY 3 DESC
     """
     
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
@@ -127,7 +122,7 @@ def get_employees():
 
 @app.route('/api/employees-breakdown')
 def get_employees_breakdown():
-    """Get hours by employee broken down by client - for stacked bar chart"""
+    """Get hours by employee broken down by client"""
     try:
         date_from, date_to = get_date_params()
         
@@ -141,23 +136,32 @@ def get_employees_breakdown():
             date_filter += " AND month <= @date_to"
             params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
         
+        # Use column positions to avoid "aggregation of aggregation" error
+        # Column 2 = employee_name, Column 5 = total_hours
         query = f"""
         SELECT 
           employee_id,
           COALESCE(employee_name, employee_id) as employee_name,
           client_id,
           client_name,
-          ROUND(SUM(hours), 0) AS hours
+          ROUND(SUM(hours), 0) AS total_hours
         FROM `mydigipal.marts.employee_workload`
         WHERE 1=1 {date_filter}
         GROUP BY 1, 2, 3, 4
         HAVING SUM(hours) > 0
-        ORDER BY employee_name, hours DESC
+        ORDER BY 2, 5 DESC
         """
         
         job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
         rows = client.query(query, job_config=job_config).result()
-        return jsonify([dict(row) for row in rows])
+        
+        # Rename total_hours to hours for frontend compatibility
+        result = []
+        for row in rows:
+            r = dict(row)
+            r['hours'] = r.pop('total_hours')
+            result.append(r)
+        return jsonify(result)
     except Exception as e:
         return jsonify({
             "error": str(e),
@@ -167,7 +171,6 @@ def get_employees_breakdown():
 
 @app.route('/api/employee/<employee_id>')
 def get_employee_detail(employee_id):
-    """Get monthly breakdown for a specific employee - INCLUDES MyDigipal"""
     date_from, date_to = get_date_params()
     
     params = [bigquery.ScalarQueryParameter("employee_id", "STRING", employee_id)]
@@ -183,7 +186,6 @@ def get_employee_detail(employee_id):
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    # Include ALL clients including mydigipal
     query = f"""
     SELECT 
       FORMAT_DATE('%Y-%m', month) as month,
@@ -192,7 +194,7 @@ def get_employee_detail(employee_id):
       cost_gbp
     FROM `mydigipal.marts.employee_workload`
     WHERE employee_id = @employee_id {date_filter}
-    ORDER BY month DESC, hours DESC
+    ORDER BY 1 DESC, 3 DESC
     """
     
     job_config = bigquery.QueryJobConfig(query_parameters=params)
@@ -201,7 +203,6 @@ def get_employee_detail(employee_id):
 
 @app.route('/api/client/<client_id>')
 def get_client_detail(client_id):
-    """Get monthly breakdown and team for a specific client"""
     date_from, date_to = get_date_params()
     
     params = [bigquery.ScalarQueryParameter("client_id", "STRING", client_id)]
@@ -216,7 +217,6 @@ def get_client_detail(client_id):
     
     job_config = bigquery.QueryJobConfig(query_parameters=params)
     
-    # Monthly data
     query1 = f"""
     SELECT 
       FORMAT_DATE('%Y-%m', month) as month,
@@ -227,35 +227,33 @@ def get_client_detail(client_id):
       margin_pct as margin
     FROM `mydigipal.marts.client_profitability`
     WHERE client_id = @client_id {date_filter}
-    ORDER BY month DESC
+    ORDER BY 1 DESC
     LIMIT 12
     """
     monthly = [dict(row) for row in client.query(query1, job_config=job_config).result()]
     
-    # Team breakdown (same date filter)
     query2 = f"""
     SELECT 
       e.employee_name,
-      ROUND(SUM(w.hours), 0) as hours,
+      ROUND(SUM(w.hours), 0) as total_hours,
       ROUND(SUM(w.cost_gbp), 0) as cost
     FROM `mydigipal.marts.employee_workload` w
     LEFT JOIN `mydigipal.staging.dim_employees` e ON w.employee_id = e.employee_id
     WHERE w.client_id = @client_id {date_filter}
     GROUP BY 1
-    ORDER BY hours DESC
+    ORDER BY 2 DESC
     """
-    team = [dict(row) for row in client.query(query2, job_config=job_config).result()]
+    team_rows = client.query(query2, job_config=job_config).result()
+    team = []
+    for row in team_rows:
+        r = dict(row)
+        r['hours'] = r.pop('total_hours')
+        team.append(r)
     
     return jsonify({"monthly": monthly, "team": team})
 
 @app.route('/api/alerts')
 def get_alerts():
-    """Get clients with issues"""
-    date_from, date_to = get_date_params()
-    
-    # Note: alerts are based on all-time data by default
-    # Could add date filtering if needed
-    
     query = """
     SELECT *
     FROM `mydigipal.marts.client_profitability_alerts`
@@ -268,7 +266,6 @@ def get_alerts():
 
 @app.route('/api/date-range')
 def get_date_range():
-    """Get min and max dates available in the data"""
     query = """
     SELECT 
       FORMAT_DATE('%Y-%m-%d', MIN(month)) as min_date,
