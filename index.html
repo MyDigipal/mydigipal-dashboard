@@ -86,7 +86,7 @@
             padding: 0.75rem 2rem;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 0.5rem;
             flex-wrap: wrap;
             border-bottom: 1px solid #e5e7eb;
         }
@@ -96,12 +96,12 @@
             color: #211F54;
         }
         .date-preset {
-            padding: 0.5rem 1rem;
+            padding: 0.4rem 0.75rem;
             border: 1px solid #ddd;
             border-radius: 6px;
             background: white;
             cursor: pointer;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             transition: all 0.2s;
         }
         .date-preset:hover { background: #f3f4f6; }
@@ -162,6 +162,7 @@
         .kpi-card .value.blue { color: #0B6CD9; }
         .kpi-card .value.purple { color: #211F54; }
         .kpi-card .value.orange { color: #D5691B; }
+        .kpi-card .value.red { color: #dc2626; }
         
         /* Tabs */
         .tabs {
@@ -306,6 +307,7 @@
         <div class="date-filter-bar">
             <label>📅 Période :</label>
             <button class="date-preset active" data-preset="all">Tout</button>
+            <button class="date-preset" data-preset="lastmonth">Mois dernier</button>
             <button class="date-preset" data-preset="30d">30 jours</button>
             <button class="date-preset" data-preset="3m">3 mois</button>
             <button class="date-preset" data-preset="6m">6 mois</button>
@@ -322,7 +324,7 @@
         </div>
         
         <div class="container">
-            <!-- KPI Cards -->
+            <!-- KPI Cards - Order: Revenue, Coût, Profit, Heures -->
             <div class="kpi-grid">
                 <div class="kpi-card">
                     <div class="label">Revenue Total</div>
@@ -330,14 +332,14 @@
                 </div>
                 <div class="kpi-card">
                     <div class="label">Coût Total</div>
-                    <div class="value orange" id="kpiCost">-</div>
+                    <div class="value red" id="kpiCost">-</div>
                 </div>
                 <div class="kpi-card">
-                    <div class="label">Marge Moyenne</div>
-                    <div class="value green" id="kpiMargin">-</div>
+                    <div class="label">Profit Total</div>
+                    <div class="value green" id="kpiProfit">-</div>
                 </div>
                 <div class="kpi-card">
-                    <div class="label">Heures Facturables</div>
+                    <div class="label">Heures Travaillées</div>
                     <div class="value purple" id="kpiHours">-</div>
                 </div>
             </div>
@@ -360,9 +362,10 @@
                     <thead>
                         <tr>
                             <th>Client</th>
-                            <th class="text-right">Heures</th>
-                            <th class="text-right">Coût</th>
                             <th class="text-right">Revenue</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Heures</th>
+                            <th class="text-right">Profit</th>
                             <th class="text-right">Marge</th>
                         </tr>
                     </thead>
@@ -426,9 +429,9 @@
                         <tr>
                             <th>Client</th>
                             <th>Alerte</th>
-                            <th class="text-right">Heures</th>
-                            <th class="text-right">Coût</th>
                             <th class="text-right">Revenue</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Profit</th>
                             <th class="text-right">Marge</th>
                         </tr>
                     </thead>
@@ -531,6 +534,15 @@
             return date.toISOString().split('T')[0];
         }
         
+        function getLastMonth() {
+            const today = new Date();
+            const year = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear();
+            const month = today.getMonth() === 0 ? 11 : today.getMonth() - 1;
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0); // Last day of the month
+            return { firstDay, lastDay, monthName: MONTH_NAMES_FR[month], year };
+        }
+        
         function setDatePreset(preset) {
             const today = new Date();
             const customRange = document.getElementById('customDateRange');
@@ -541,6 +553,12 @@
                     dateFrom = null;
                     dateTo = null;
                     document.getElementById('currentPeriod').textContent = 'Toutes les données';
+                    break;
+                case 'lastmonth':
+                    const lastMonth = getLastMonth();
+                    dateFrom = lastMonth.firstDay;
+                    dateTo = lastMonth.lastDay;
+                    document.getElementById('currentPeriod').textContent = `${lastMonth.monthName} ${lastMonth.year}`;
                     break;
                 case '30d':
                     dateFrom = new Date(today);
@@ -653,7 +671,7 @@
             // Show loading state
             document.getElementById('kpiRevenue').textContent = '...';
             document.getElementById('kpiCost').textContent = '...';
-            document.getElementById('kpiMargin').textContent = '...';
+            document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
             
             // Hide employee deep dive when refreshing
@@ -675,9 +693,11 @@
                 hours: acc.hours + (c.hours || 0)
             }), { revenue: 0, cost: 0, hours: 0 });
             
+            const totalProfit = totals.revenue - totals.cost;
+            
             document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
             document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
-            document.getElementById('kpiMargin').textContent = totals.revenue ? Math.round((totals.revenue - totals.cost) / totals.revenue * 100) + '%' : '0%';
+            document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
             document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
             
             renderClientsChart();
@@ -724,13 +744,15 @@
         function renderClientsTable() {
             const tbody = document.querySelector('#clientsTable tbody');
             tbody.innerHTML = clientsData.map(c => {
-                const margin = c.revenue ? Math.round((c.revenue - c.cost) / c.revenue * 100) : 0;
+                const profit = (c.revenue || 0) - (c.cost || 0);
+                const margin = c.revenue ? Math.round(profit / c.revenue * 100) : 0;
                 return `
                 <tr>
                     <td><strong>${c.client_name}</strong></td>
-                    <td class="text-right">${formatNumber(c.hours)}h</td>
-                    <td class="text-right text-red">${formatCurrency(c.cost)}</td>
                     <td class="text-right text-green">${formatCurrency(c.revenue)}</td>
+                    <td class="text-right text-red">${formatCurrency(c.cost)}</td>
+                    <td class="text-right">${formatNumber(c.hours)}h</td>
+                    <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
                     <td class="text-right">
                         <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">
                             ${margin}%
@@ -754,7 +776,8 @@
                     labels,
                     datasets: [
                         { label: 'Revenue', data: monthlyData.map(m => m.revenue), borderColor: '#0B6CD9', backgroundColor: '#0B6CD9', tension: 0.3 },
-                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', backgroundColor: '#dc2626', tension: 0.3 }
+                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', backgroundColor: '#dc2626', tension: 0.3 },
+                        { label: 'Profit', data: monthlyData.map(m => m.profit), borderColor: '#11845B', backgroundColor: '#11845B', tension: 0.3 }
                     ]
                 },
                 options: {
@@ -963,14 +986,15 @@
             
             const tbody = document.querySelector('#alertsTable tbody');
             tbody.innerHTML = data.map(a => {
-                const margin = a.total_revenue_gbp ? Math.round((a.total_revenue_gbp - a.total_cost_gbp) / a.total_revenue_gbp * 100) : 0;
+                const profit = (a.total_revenue_gbp || 0) - (a.total_cost_gbp || 0);
+                const margin = a.total_revenue_gbp ? Math.round(profit / a.total_revenue_gbp * 100) : 0;
                 return `
                 <tr>
                     <td><strong>${a.client_name || a.client_id}</strong></td>
                     <td><span class="badge low">${a.alert_type}</span><br><small>${a.alert_message}</small></td>
-                    <td class="text-right">${formatNumber(a.total_hours)}h</td>
-                    <td class="text-right text-red">${formatCurrency(a.total_cost_gbp)}</td>
                     <td class="text-right">${formatCurrency(a.total_revenue_gbp)}</td>
+                    <td class="text-right text-red">${formatCurrency(a.total_cost_gbp)}</td>
+                    <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
                     <td class="text-right">
                         <span class="badge ${margin >= 50 ? 'high' : margin >= 0 ? 'medium' : 'low'}">
                             ${margin}%
