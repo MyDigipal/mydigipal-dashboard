@@ -4,6 +4,8 @@ from google.cloud import bigquery
 from datetime import datetime, timedelta
 import os
 
+# Dashboard API v1.1 - With employees-breakdown endpoint
+
 app = Flask(__name__)
 CORS(app)  # Allow frontend to call API
 
@@ -17,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.1"})
 
 @app.route('/api/clients')
 def get_clients():
