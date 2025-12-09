@@ -186,6 +186,7 @@
         }
         .tab:hover { background: #e8e8f0; }
         .tab.active { background: #0B6CD9; color: white; }
+        .tab.hidden { display: none; }
         
         /* Content panels */
         .panel {
@@ -220,6 +221,13 @@
             width: 18px;
             height: 18px;
             cursor: pointer;
+        }
+        .filter-controls select {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
         }
         
         /* Client selector */
@@ -299,6 +307,119 @@
         .badge.medium { background: #fef3c7; color: #92400e; }
         .badge.low { background: #fee2e2; color: #991b1b; }
         
+        /* Status badges for planning */
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .status-badge.ok { background: #dcfce7; color: #166534; }
+        .status-badge.warning { background: #fef3c7; color: #92400e; }
+        .status-badge.exceeded { background: #fee2e2; color: #991b1b; }
+        
+        /* Progress bar */
+        .progress-bar-container {
+            width: 100%;
+            height: 24px;
+            background: #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar {
+            height: 100%;
+            border-radius: 12px;
+            transition: width 0.3s ease;
+        }
+        .progress-bar.ok { background: linear-gradient(90deg, #11845B, #22c55e); }
+        .progress-bar.warning { background: linear-gradient(90deg, #D5691B, #f59e0b); }
+        .progress-bar.exceeded { background: linear-gradient(90deg, #dc2626, #ef4444); }
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #211F54;
+        }
+        .pace-marker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: #211F54;
+            opacity: 0.7;
+        }
+        
+        /* Planning card */
+        .planning-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid #0B6CD9;
+        }
+        .planning-card.warning { border-left-color: #D5691B; }
+        .planning-card.exceeded { border-left-color: #dc2626; }
+        .planning-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+        .planning-card-header h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #211F54;
+        }
+        .planning-card-stats {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .planning-card-employees {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+        .employee-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: #f3f4f6;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+        .employee-chip .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+        
+        /* Planning summary */
+        .planning-summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .planning-summary-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .planning-summary-card .label { font-size: 0.8rem; color: #666; margin-bottom: 0.25rem; }
+        .planning-summary-card .value { font-size: 1.5rem; font-weight: 700; }
+        
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
         .chart-container.tall { height: 500px; }
@@ -334,10 +455,12 @@
         /* Responsive */
         @media (max-width: 1024px) {
             .charts-grid { grid-template-columns: 1fr; }
+            .planning-summary { grid-template-columns: repeat(2, 1fr); }
         }
         @media (max-width: 768px) {
             .kpi-grid { grid-template-columns: repeat(2, 1fr); }
             .date-filter-bar { padding: 0.75rem 1rem; }
+            .planning-summary { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
@@ -370,7 +493,7 @@
         </div>
         
         <!-- Date Filter Bar -->
-        <div class="date-filter-bar">
+        <div class="date-filter-bar" id="dateFilterBar">
             <label>📅 Période :</label>
             <button class="date-preset" data-preset="all">Tout</button>
             <button class="date-preset active" data-preset="lastmonth">Mois dernier</button>
@@ -411,15 +534,16 @@
             </div>
             
             <!-- Tabs -->
-            <div class="tabs">
-                <button class="tab active" data-tab="clients">📊 Rentabilité</button>
-                <button class="tab" data-tab="monthly">📈 Évolution</button>
+            <div class="tabs" id="tabsContainer">
+                <button class="tab admin-only" data-tab="clients">📊 Rentabilité</button>
+                <button class="tab admin-only" data-tab="monthly">📈 Évolution</button>
                 <button class="tab" data-tab="hours">⏱️ Heures</button>
                 <button class="tab" data-tab="clientdetail">🏢 Client</button>
+                <button class="tab" data-tab="planning">📋 Planning</button>
             </div>
             
-            <!-- Clients Panel -->
-            <div class="panel active" id="panel-clients">
+            <!-- Clients Panel (Admin only) -->
+            <div class="panel" id="panel-clients">
                 <h2>Rentabilité par Client</h2>
                 <div class="chart-container">
                     <canvas id="clientsChart"></canvas>
@@ -440,7 +564,7 @@
                 </table>
             </div>
             
-            <!-- Monthly Panel -->
+            <!-- Monthly Panel (Admin only) -->
             <div class="panel" id="panel-monthly">
                 <h2>Évolution Mensuelle</h2>
                 <div class="chart-container">
@@ -519,6 +643,53 @@
                     <p>Sélectionnez un client pour voir le détail des heures travaillées</p>
                 </div>
             </div>
+            
+            <!-- Planning Panel -->
+            <div class="panel" id="panel-planning">
+                <h2>📋 Planning - Budget vs Réel</h2>
+                
+                <div class="filter-controls">
+                    <label>
+                        <strong>Mois :</strong>
+                        <select id="planningMonth" onchange="loadBudgetProgress()">
+                            <option value="">Chargement...</option>
+                        </select>
+                    </label>
+                </div>
+                
+                <!-- Summary KPIs -->
+                <div class="planning-summary" id="planningSummary">
+                    <div class="planning-summary-card">
+                        <div class="label">Progression du mois</div>
+                        <div class="value blue" id="planningMonthProgress">-</div>
+                    </div>
+                    <div class="planning-summary-card">
+                        <div class="label">Clients avec budget</div>
+                        <div class="value purple" id="planningClientCount">-</div>
+                    </div>
+                    <div class="planning-summary-card">
+                        <div class="label">En alerte</div>
+                        <div class="value orange" id="planningWarningCount">-</div>
+                    </div>
+                    <div class="planning-summary-card">
+                        <div class="label">Dépassés</div>
+                        <div class="value red" id="planningExceededCount">-</div>
+                    </div>
+                </div>
+                
+                <!-- Client budget cards -->
+                <div id="planningCards">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Chargement des données...
+                    </div>
+                </div>
+                
+                <div id="planningEmpty" class="empty-state" style="display: none;">
+                    <div class="icon">📋</div>
+                    <p>Aucun budget défini pour ce mois.<br>Ajoutez des budgets dans BigQuery pour les voir ici.</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -529,7 +700,18 @@
         // ============== CONFIGURATION ==============
         const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
-        const ALLOWED_EMAILS = ['paul@mydigipal.com'];
+        
+        // Access control: Admin emails see everything, others see limited tabs
+        const ADMIN_EMAILS = ['paul@mydigipal.com'];
+        const ALLOWED_EMAILS = [
+            'paul@mydigipal.com',
+            'jordan@mydigipal.com',
+            'juliette@mydigipal.com',
+            'alexandre@mydigipal.com',
+            'alizee@mydigipal.com',
+            'heather@mydigipal.com'
+            // Add more team emails as needed
+        ];
         
         // Internal client to exclude from hours breakdown charts
         const INTERNAL_CLIENT = 'MyDigipal (interne)';
@@ -583,13 +765,16 @@
         
         // ============== AUTHENTICATION ==============
         let currentUser = null;
+        let isAdmin = false;
         
         function handleCredentialResponse(response) {
             const payload = parseJwt(response.credential);
             
             if (ALLOWED_EMAILS.includes(payload.email)) {
                 currentUser = payload;
+                isAdmin = ADMIN_EMAILS.includes(payload.email);
                 sessionStorage.setItem('user', JSON.stringify(payload));
+                sessionStorage.setItem('isAdmin', isAdmin);
                 showDashboard();
             } else {
                 document.getElementById('loginError').style.display = 'block';
@@ -606,24 +791,54 @@
             return JSON.parse(jsonPayload);
         }
         
+        function applyAccessControl() {
+            // Hide admin-only tabs for non-admins
+            document.querySelectorAll('.tab.admin-only').forEach(tab => {
+                tab.classList.toggle('hidden', !isAdmin);
+            });
+            
+            // Hide KPIs for non-admins
+            if (!isAdmin) {
+                document.getElementById('kpiGrid').classList.add('hidden');
+            }
+            
+            // Set default tab based on role
+            const defaultTab = isAdmin ? 'clients' : 'hours';
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            
+            const activeTab = document.querySelector(`.tab[data-tab="${defaultTab}"]`);
+            if (activeTab) {
+                activeTab.classList.add('active');
+                document.getElementById('panel-' + defaultTab).classList.add('active');
+            }
+        }
+        
         function showDashboard() {
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('dashboard').classList.add('visible');
             document.getElementById('userName').textContent = currentUser.name;
             document.getElementById('userPhoto').src = currentUser.picture;
+            
+            applyAccessControl();
             setDatePreset('lastmonth');
+            loadPlanningMonths();
         }
         
         function logout() {
             sessionStorage.removeItem('user');
+            sessionStorage.removeItem('isAdmin');
             currentUser = null;
+            isAdmin = false;
             location.reload();
         }
         
         function checkExistingSession() {
             const stored = sessionStorage.getItem('user');
+            const storedAdmin = sessionStorage.getItem('isAdmin');
             if (stored) {
                 currentUser = JSON.parse(stored);
+                isAdmin = storedAdmin === 'true';
                 if (ALLOWED_EMAILS.includes(currentUser.email)) {
                     showDashboard();
                     return true;
@@ -759,22 +974,32 @@
         // Tab switching with KPI visibility control
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
+                // Check if this is an admin-only tab and user is not admin
+                if (tab.classList.contains('admin-only') && !isAdmin) return;
+                
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
                 document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
                 tab.classList.add('active');
                 document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
                 
-                // Show KPIs ONLY on Rentabilité and Evolution tabs
+                // Show KPIs ONLY on Rentabilité and Evolution tabs (and only for admin)
                 const kpiGrid = document.getElementById('kpiGrid');
-                if (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly') {
+                if (isAdmin && (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly')) {
                     kpiGrid.classList.remove('hidden');
                 } else {
                     kpiGrid.classList.add('hidden');
                 }
                 
-                // Load client list when switching to client detail tab
+                // Hide date filter on Planning tab (it has its own month selector)
+                const dateFilterBar = document.getElementById('dateFilterBar');
+                dateFilterBar.style.display = tab.dataset.tab === 'planning' ? 'none' : 'flex';
+                
+                // Load specific tab data
                 if (tab.dataset.tab === 'clientdetail') {
                     loadClientsWithHours();
+                }
+                if (tab.dataset.tab === 'planning') {
+                    loadBudgetProgress();
                 }
             });
         });
@@ -799,10 +1024,12 @@
         }
         
         async function init() {
-            document.getElementById('kpiRevenue').textContent = '...';
-            document.getElementById('kpiCost').textContent = '...';
-            document.getElementById('kpiProfit').textContent = '...';
-            document.getElementById('kpiHours').textContent = '...';
+            if (isAdmin) {
+                document.getElementById('kpiRevenue').textContent = '...';
+                document.getElementById('kpiCost').textContent = '...';
+                document.getElementById('kpiProfit').textContent = '...';
+                document.getElementById('kpiHours').textContent = '...';
+            }
             
             // Reset client detail when period changes
             document.getElementById('clientSelect').value = '';
@@ -827,18 +1054,125 @@
             
             const totalProfit = totals.revenue - totals.cost;
             
-            document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
-            document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
-            document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
-            document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
+            if (isAdmin) {
+                document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
+                document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
+                document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
+                document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
+                
+                renderClientsChart();
+                renderClientsTable();
+                renderMonthlyChart();
+            }
             
-            renderClientsChart();
-            renderClientsTable();
-            renderMonthlyChart();
             renderHoursBreakdownCharts();
             
             // Pre-load clients with hours for the client detail tab
             loadClientsWithHours();
+        }
+        
+        // ============== PLANNING TAB ==============
+        async function loadPlanningMonths() {
+            try {
+                const res = await fetch(API_URL + '/api/budget-months');
+                const months = await res.json();
+                
+                const select = document.getElementById('planningMonth');
+                
+                // Add current month as default option
+                const now = new Date();
+                const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+                
+                // Combine months from API with current month
+                const allMonths = [...new Set([currentMonth, ...months])].sort().reverse();
+                
+                select.innerHTML = allMonths.map(m => 
+                    `<option value="${m}" ${m === currentMonth ? 'selected' : ''}>${formatMonthFR(m)}</option>`
+                ).join('');
+                
+            } catch (e) {
+                console.error('Error loading planning months:', e);
+            }
+        }
+        
+        async function loadBudgetProgress() {
+            const month = document.getElementById('planningMonth').value;
+            if (!month) return;
+            
+            const cardsContainer = document.getElementById('planningCards');
+            cardsContainer.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement des données...</div>';
+            
+            try {
+                const res = await fetch(API_URL + `/api/budget-progress?month=${month}`);
+                const data = await res.json();
+                
+                if (!data.clients || data.clients.length === 0) {
+                    cardsContainer.innerHTML = '';
+                    document.getElementById('planningEmpty').style.display = 'block';
+                    document.getElementById('planningSummary').style.display = 'none';
+                    return;
+                }
+                
+                document.getElementById('planningEmpty').style.display = 'none';
+                document.getElementById('planningSummary').style.display = 'grid';
+                
+                // Update summary KPIs
+                document.getElementById('planningMonthProgress').textContent = `${data.month_progress_pct}%`;
+                document.getElementById('planningClientCount').textContent = data.clients.length;
+                document.getElementById('planningWarningCount').textContent = 
+                    data.clients.filter(c => c.status === 'warning').length;
+                document.getElementById('planningExceededCount').textContent = 
+                    data.clients.filter(c => c.status === 'exceeded').length;
+                
+                // Render client cards
+                cardsContainer.innerHTML = data.clients.map(client => {
+                    const progressWidth = Math.min(client.progress_pct, 100);
+                    const pacePosition = Math.min(data.month_progress_pct, 100);
+                    
+                    return `
+                        <div class="planning-card ${client.status}">
+                            <div class="planning-card-header">
+                                <h4>${client.client_name}</h4>
+                                <span class="status-badge ${client.status}">
+                                    ${client.status === 'ok' ? '✓ En bonne voie' : 
+                                      client.status === 'warning' ? '⚠️ Attention' : 
+                                      '🚨 Dépassé'}
+                                </span>
+                            </div>
+                            
+                            <div class="planning-card-stats">
+                                <span><strong>Budget:</strong> ${client.budgeted_hours}h</span>
+                                <span><strong>Réel:</strong> ${client.actual_hours}h</span>
+                                <span><strong>Restant:</strong> ${client.remaining_hours}h</span>
+                                <span class="${client.pace_diff > 0 ? 'text-red' : 'text-green'}">
+                                    <strong>vs pace:</strong> ${client.pace_diff > 0 ? '+' : ''}${client.pace_diff}h
+                                </span>
+                            </div>
+                            
+                            <div class="progress-bar-container">
+                                <div class="progress-bar ${client.status}" style="width: ${progressWidth}%"></div>
+                                <div class="pace-marker" style="left: ${pacePosition}%" title="Position idéale: ${data.month_progress_pct}% du mois"></div>
+                                <span class="progress-text">${client.progress_pct}%</span>
+                            </div>
+                            
+                            ${client.employees && client.employees.length > 0 ? `
+                                <div class="planning-card-employees">
+                                    ${client.employees.map((emp, idx) => `
+                                        <span class="employee-chip">
+                                            <span class="dot" style="background: ${EMPLOYEE_COLORS[emp.employee_name] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]}"></span>
+                                            ${emp.employee_name}: ${emp.hours}h
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    `;
+                }).join('');
+                
+            } catch (e) {
+                console.error('Error loading budget progress:', e);
+                cardsContainer.innerHTML = '<div class="empty-state"><div class="icon">❌</div><p>Erreur de chargement</p></div>';
+            }
         }
         
         // ============== CLIENT DETAIL TAB ==============
@@ -886,11 +1220,9 @@
         function renderClientTimelineChart(data) {
             const ctx = document.getElementById('clientTimelineChart').getContext('2d');
             
-            // Get unique dates and employees
             const dates = [...new Set(data.daily.map(d => d.date))].sort();
             const employees = [...new Set(data.daily.map(d => d.employee_name))];
             
-            // Build datasets (one per employee)
             const datasets = employees.map((empName, idx) => {
                 const empData = dates.map(date => {
                     const entry = data.daily.find(d => d.date === date && d.employee_name === empName);
@@ -907,34 +1239,18 @@
             if (clientTimelineChart) clientTimelineChart.destroy();
             clientTimelineChart = new Chart(ctx, {
                 type: 'bar',
-                data: {
-                    labels: dates.map(formatDateFR),
-                    datasets: datasets
-                },
+                data: { labels: dates.map(formatDateFR), datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: { boxWidth: 12, font: { size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
-                            }
-                        },
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
                         datalabels: { display: false }
                     },
                     scales: {
-                        x: { 
-                            stacked: true,
-                            ticks: { maxRotation: 45, minRotation: 45 }
-                        },
-                        y: { 
-                            stacked: true,
-                            ticks: { callback: v => v + 'h' }
-                        }
+                        x: { stacked: true, ticks: { maxRotation: 45, minRotation: 45 } },
+                        y: { stacked: true, ticks: { callback: v => v + 'h' } }
                     }
                 }
             });
@@ -942,10 +1258,7 @@
         
         function renderClientEmployeesChart(data) {
             const ctx = document.getElementById('clientEmployeesChart').getContext('2d');
-            
-            // Sort by hours desc
             const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
-            
             const colors = sortedTotals.map((t, idx) => 
                 EMPLOYEE_COLORS[t.employee_name] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
             );
@@ -955,19 +1268,13 @@
                 type: 'doughnut',
                 data: {
                     labels: sortedTotals.map(t => t.employee_name),
-                    datasets: [{
-                        data: sortedTotals.map(t => t.total_hours),
-                        backgroundColor: colors
-                    }]
+                    datasets: [{ data: sortedTotals.map(t => t.total_hours), backgroundColor: colors }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: { boxWidth: 12, font: { size: 11 } }
-                        },
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: {
                             callbacks: {
                                 label: ctx => {
@@ -986,8 +1293,6 @@
         function renderClientEmployeesTable(data) {
             const tbody = document.querySelector('#clientEmployeesTable tbody');
             const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
-            
-            // Sort by hours desc
             const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
             
             tbody.innerHTML = sortedTotals.map(t => {
@@ -1006,7 +1311,7 @@
             }).join('');
         }
         
-        // ============== OTHER CHARTS ==============
+        // ============== OTHER CHARTS (Admin only) ==============
         function renderClientsChart() {
             const top15 = clientsData.slice(0, 15);
             const ctx = document.getElementById('clientsChart').getContext('2d');
@@ -1027,13 +1332,7 @@
                     maintainAspectRatio: false,
                     plugins: { 
                         legend: { position: 'top' },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
-                                }
-                            }
-                        },
+                        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB') } },
                         datalabels: { display: false }
                     },
                     scales: { x: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
@@ -1045,7 +1344,6 @@
             const tbody = document.querySelector('#clientsTable tbody');
             const tfoot = document.getElementById('clientsTableFooter');
             
-            // Calculate totals
             const totals = clientsData.reduce((acc, c) => ({
                 revenue: acc.revenue + (c.revenue || 0),
                 cost: acc.cost + (c.cost || 0),
@@ -1054,7 +1352,6 @@
             const totalProfit = totals.revenue - totals.cost;
             const totalMargin = totals.revenue ? Math.round(totalProfit / totals.revenue * 100) : 0;
             
-            // Render rows
             tbody.innerHTML = clientsData.map(c => {
                 const profit = (c.revenue || 0) - (c.cost || 0);
                 const margin = c.revenue ? Math.round(profit / c.revenue * 100) : 0;
@@ -1066,14 +1363,11 @@
                     <td class="text-right">${formatNumber(c.hours)}h</td>
                     <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
                     <td class="text-right">
-                        <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">
-                            ${margin}%
-                        </span>
+                        <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">${margin}%</span>
                     </td>
                 </tr>
             `}).join('');
             
-            // Render totals row
             tfoot.innerHTML = `
                 <tr class="total-row">
                     <td><strong>TOTAL</strong></td>
@@ -1082,9 +1376,7 @@
                     <td class="text-right">${formatNumber(totals.hours)}h</td>
                     <td class="text-right">${formatCurrency(totalProfit)}</td>
                     <td class="text-right">
-                        <span class="badge ${totalMargin >= 70 ? 'high' : totalMargin >= 50 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">
-                            ${totalMargin}%
-                        </span>
+                        <span class="badge ${totalMargin >= 70 ? 'high' : totalMargin >= 50 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">${totalMargin}%</span>
                     </td>
                 </tr>
             `;
@@ -1094,7 +1386,6 @@
             if (!monthlyData || monthlyData.length === 0) return;
             const ctx = document.getElementById('monthlyChart').getContext('2d');
             const ctx2 = document.getElementById('hoursChart').getContext('2d');
-            
             const labels = monthlyData.map(m => formatMonthFR(m.month));
             
             if (monthlyChart) monthlyChart.destroy();
@@ -1114,13 +1405,7 @@
                     interaction: { intersect: false, mode: 'index' },
                     plugins: { 
                         legend: { position: 'top' },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
-                                }
-                            }
-                        },
+                        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB') } },
                         datalabels: { display: false }
                     },
                     scales: { y: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
@@ -1130,22 +1415,13 @@
             if (hoursChart) hoursChart.destroy();
             hoursChart = new Chart(ctx2, {
                 type: 'bar',
-                data: {
-                    labels,
-                    datasets: [{ label: 'Heures', data: monthlyData.map(m => m.hours), backgroundColor: '#211F54' }]
-                },
+                data: { labels, datasets: [{ label: 'Heures', data: monthlyData.map(m => m.hours), backgroundColor: '#211F54' }] },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: { 
                         legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.raw.toLocaleString('en-GB') + ' heures';
-                                }
-                            }
-                        },
+                        tooltip: { callbacks: { label: ctx => ctx.raw.toLocaleString('en-GB') + ' heures' } },
                         datalabels: { display: false }
                     }
                 }
@@ -1155,40 +1431,24 @@
         function renderHoursBreakdownCharts() {
             if (!breakdownData || breakdownData.length === 0) return;
             
-            // Check if we should exclude internal client
             const excludeInternal = document.getElementById('excludeInternal').checked;
             const filteredData = excludeInternal 
                 ? breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT)
                 : breakdownData;
             
-            // ========== CHART 1: Hours by Employee (stacked by client) ==========
+            // Chart 1: Hours by Employee
             const employeeMap = {};
-            const allClients = new Set();
-            
             filteredData.forEach(row => {
-                if (!employeeMap[row.employee_name]) {
-                    employeeMap[row.employee_name] = { total: 0, clients: {} };
-                }
+                if (!employeeMap[row.employee_name]) employeeMap[row.employee_name] = { total: 0, clients: {} };
                 employeeMap[row.employee_name].clients[row.client_name] = row.hours;
                 employeeMap[row.employee_name].total += row.hours;
-                allClients.add(row.client_name);
             });
             
-            // Sort employees by total hours desc
-            const sortedEmployees = Object.entries(employeeMap)
-                .sort((a, b) => b[1].total - a[1].total)
-                .map(([name]) => name);
-            
-            // Sort clients by total hours across all employees
+            const sortedEmployees = Object.entries(employeeMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
             const clientTotals = {};
-            filteredData.forEach(row => {
-                clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours;
-            });
-            const sortedClients = Object.entries(clientTotals)
-                .sort((a, b) => b[1] - a[1])
-                .map(([name]) => name);
+            filteredData.forEach(row => { clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours; });
+            const sortedClients = Object.entries(clientTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
             
-            // Create datasets for Chart 1 (one dataset per client)
             const datasetsForEmployeeChart = sortedClients.map((clientName, idx) => ({
                 label: clientName,
                 data: sortedEmployees.map(empName => employeeMap[empName].clients[clientName] || 0),
@@ -1199,89 +1459,45 @@
             if (hoursByEmployeeChart) hoursByEmployeeChart.destroy();
             hoursByEmployeeChart = new Chart(ctx1, {
                 type: 'bar',
-                data: {
-                    labels: sortedEmployees,
-                    datasets: datasetsForEmployeeChart
-                },
+                data: { labels: sortedEmployees, datasets: datasetsForEmployeeChart },
                 plugins: [ChartDataLabels],
                 options: {
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    layout: {
-                        padding: { right: 50 }
-                    },
+                    layout: { padding: { right: 50 } },
                     plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: { boxWidth: 12, font: { size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                title: () => '',
-                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
-                            }
-                        },
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { title: () => '', label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
                         datalabels: {
-                            display: function(context) {
-                                return context.datasetIndex === context.chart.data.datasets.length - 1;
-                            },
-                            anchor: 'end',
-                            align: 'end',
-                            offset: 4,
-                            formatter: function(value, context) {
-                                const dataIndex = context.dataIndex;
-                                const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
-                                return Math.round(total) + 'h';
-                            },
-                            font: { weight: 'bold', size: 11 },
-                            color: '#211F54'
+                            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+                            anchor: 'end', align: 'end', offset: 4,
+                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
+                            font: { weight: 'bold', size: 11 }, color: '#211F54'
                         }
                     },
-                    scales: {
-                        x: { 
-                            stacked: true,
-                            ticks: { callback: v => v + 'h' }
-                        },
-                        y: { stacked: true }
-                    }
+                    scales: { x: { stacked: true, ticks: { callback: v => v + 'h' } }, y: { stacked: true } }
                 }
             });
             
-            // ========== CHART 2: Hours by Client (stacked by employee) ==========
+            // Chart 2: Hours by Client
             const clientMap = {};
-            const allEmployees = new Set();
-            
             filteredData.forEach(row => {
-                if (!clientMap[row.client_name]) {
-                    clientMap[row.client_name] = { total: 0, employees: {} };
-                }
+                if (!clientMap[row.client_name]) clientMap[row.client_name] = { total: 0, employees: {} };
                 clientMap[row.client_name].employees[row.employee_name] = row.hours;
                 clientMap[row.client_name].total += row.hours;
-                allEmployees.add(row.employee_name);
             });
             
-            // Sort clients by total hours desc
-            const sortedClientsForChart2 = Object.entries(clientMap)
-                .sort((a, b) => b[1].total - a[1].total)
-                .map(([name]) => name);
-            
-            // Get unique employees sorted by total hours
+            const sortedClientsForChart2 = Object.entries(clientMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
             const employeeTotals = {};
-            filteredData.forEach(row => {
-                employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours;
-            });
-            const sortedEmployeesForLegend = Object.entries(employeeTotals)
-                .sort((a, b) => b[1] - a[1])
-                .map(([name]) => name);
+            filteredData.forEach(row => { employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours; });
+            const sortedEmployeesForLegend = Object.entries(employeeTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
             
-            // Assign consistent colors to employees
             const employeeColorMap = {};
             sortedEmployeesForLegend.forEach((empName, idx) => {
                 employeeColorMap[empName] = EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
             });
             
-            // Create datasets for Chart 2 (one dataset per employee)
             const datasetsForClientChart = sortedEmployeesForLegend.map(empName => ({
                 label: empName,
                 data: sortedClientsForChart2.map(clientName => clientMap[clientName].employees[empName] || 0),
@@ -1292,52 +1508,24 @@
             if (hoursByClientChart) hoursByClientChart.destroy();
             hoursByClientChart = new Chart(ctx2, {
                 type: 'bar',
-                data: {
-                    labels: sortedClientsForChart2,
-                    datasets: datasetsForClientChart
-                },
+                data: { labels: sortedClientsForChart2, datasets: datasetsForClientChart },
                 plugins: [ChartDataLabels],
                 options: {
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    layout: {
-                        padding: { right: 50 }
-                    },
+                    layout: { padding: { right: 50 } },
                     plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: { boxWidth: 12, font: { size: 11 } }
-                        },
-                        tooltip: {
-                            callbacks: {
-                                title: () => '',
-                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
-                            }
-                        },
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { title: () => '', label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
                         datalabels: {
-                            display: function(context) {
-                                return context.datasetIndex === context.chart.data.datasets.length - 1;
-                            },
-                            anchor: 'end',
-                            align: 'end',
-                            offset: 4,
-                            formatter: function(value, context) {
-                                const dataIndex = context.dataIndex;
-                                const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
-                                return Math.round(total) + 'h';
-                            },
-                            font: { weight: 'bold', size: 11 },
-                            color: '#211F54'
+                            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
+                            anchor: 'end', align: 'end', offset: 4,
+                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
+                            font: { weight: 'bold', size: 11 }, color: '#211F54'
                         }
                     },
-                    scales: {
-                        x: { 
-                            stacked: true,
-                            ticks: { callback: v => v + 'h' }
-                        },
-                        y: { stacked: true }
-                    }
+                    scales: { x: { stacked: true, ticks: { callback: v => v + 'h' } }, y: { stacked: true } }
                 }
             });
         }
