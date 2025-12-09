@@ -198,11 +198,36 @@
         .panel h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #211F54; }
         .panel h3 { font-size: 1rem; margin: 1.5rem 0 1rem; color: #666; }
         
+        /* Filter controls */
+        .filter-controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: #f3f4f6;
+            border-radius: 8px;
+        }
+        .filter-controls label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .filter-controls input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
         /* Tables */
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
         th { text-align: left; padding: 0.75rem; background: #EFF0F6; font-weight: 600; }
         td { padding: 0.75rem; border-bottom: 1px solid #eee; }
         tr:hover { background: #f9f9fc; }
+        tr.total-row { background: #211F54 !important; color: white; font-weight: 600; }
+        tr.total-row td { border-bottom: none; }
         .text-right { text-align: right; }
         .text-green { color: #11845B; font-weight: 600; }
         .text-red { color: #dc2626; }
@@ -346,6 +371,7 @@
                         </tr>
                     </thead>
                     <tbody></tbody>
+                    <tfoot id="clientsTableFooter"></tfoot>
                 </table>
             </div>
             
@@ -363,6 +389,13 @@
             <!-- Hours Panel -->
             <div class="panel" id="panel-hours">
                 <h2>⏱️ Répartition des Heures</h2>
+                
+                <div class="filter-controls">
+                    <label>
+                        <input type="checkbox" id="excludeInternal" onchange="renderHoursBreakdownCharts()">
+                        Exclure le travail interne (MyDigipal)
+                    </label>
+                </div>
                 
                 <h3>Par Employé (split par client)</h3>
                 <div class="chart-container tall">
@@ -747,6 +780,18 @@
         
         function renderClientsTable() {
             const tbody = document.querySelector('#clientsTable tbody');
+            const tfoot = document.getElementById('clientsTableFooter');
+            
+            // Calculate totals
+            const totals = clientsData.reduce((acc, c) => ({
+                revenue: acc.revenue + (c.revenue || 0),
+                cost: acc.cost + (c.cost || 0),
+                hours: acc.hours + (c.hours || 0)
+            }), { revenue: 0, cost: 0, hours: 0 });
+            const totalProfit = totals.revenue - totals.cost;
+            const totalMargin = totals.revenue ? Math.round(totalProfit / totals.revenue * 100) : 0;
+            
+            // Render rows
             tbody.innerHTML = clientsData.map(c => {
                 const profit = (c.revenue || 0) - (c.cost || 0);
                 const margin = c.revenue ? Math.round(profit / c.revenue * 100) : 0;
@@ -764,6 +809,22 @@
                     </td>
                 </tr>
             `}).join('');
+            
+            // Render totals row
+            tfoot.innerHTML = `
+                <tr class="total-row">
+                    <td><strong>TOTAL</strong></td>
+                    <td class="text-right">${formatCurrency(totals.revenue)}</td>
+                    <td class="text-right">${formatCurrency(totals.cost)}</td>
+                    <td class="text-right">${formatNumber(totals.hours)}h</td>
+                    <td class="text-right">${formatCurrency(totalProfit)}</td>
+                    <td class="text-right">
+                        <span class="badge ${totalMargin >= 70 ? 'high' : totalMargin >= 50 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">
+                            ${totalMargin}%
+                        </span>
+                    </td>
+                </tr>
+            `;
         }
         
         function renderMonthlyChart() {
@@ -829,8 +890,11 @@
         function renderHoursBreakdownCharts() {
             if (!breakdownData || breakdownData.length === 0) return;
             
-            // Filter out internal client
-            const filteredData = breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT);
+            // Check if we should exclude internal client
+            const excludeInternal = document.getElementById('excludeInternal').checked;
+            const filteredData = excludeInternal 
+                ? breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT)
+                : breakdownData;
             
             // ========== CHART 1: Hours by Employee (stacked by client) ==========
             const employeeMap = {};
