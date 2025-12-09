@@ -1179,9 +1179,6 @@
                 .sort((a, b) => b[1].total - a[1].total)
                 .map(([name]) => name);
             
-            // Calculate totals for each employee (for datalabels)
-            const employeeTotalsArr = sortedEmployees.map(empName => Math.round(employeeMap[empName].total));
-            
             // Sort clients by total hours across all employees
             const clientTotals = {};
             filteredData.forEach(row => {
@@ -1211,6 +1208,9 @@
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: { right: 50 }
+                    },
                     plugins: {
                         legend: { 
                             position: 'bottom',
@@ -1218,19 +1218,18 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: () => '',
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
                             }
                         },
                         datalabels: {
                             display: function(context) {
-                                // Only show on the last dataset (rightmost segment)
                                 return context.datasetIndex === context.chart.data.datasets.length - 1;
                             },
                             anchor: 'end',
                             align: 'end',
                             offset: 4,
                             formatter: function(value, context) {
-                                // Calculate total for this bar
                                 const dataIndex = context.dataIndex;
                                 const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
                                 return Math.round(total) + 'h';
@@ -1302,6 +1301,9 @@
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: {
+                        padding: { right: 50 }
+                    },
                     plugins: {
                         legend: { 
                             position: 'bottom',
@@ -1309,19 +1311,18 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: () => '',
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
                             }
                         },
                         datalabels: {
                             display: function(context) {
-                                // Only show on the last dataset (rightmost segment)
                                 return context.datasetIndex === context.chart.data.datasets.length - 1;
                             },
                             anchor: 'end',
                             align: 'end',
                             offset: 4,
                             formatter: function(value, context) {
-                                // Calculate total for this bar
                                 const dataIndex = context.dataIndex;
                                 const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
                                 return Math.round(total) + 'h';
