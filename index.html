@@ -220,7 +220,7 @@
         
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
-        .chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        .chart-row { display: grid; grid-template-columns: 3fr 1fr; gap: 1.5rem; align-items: start; }
         
         /* Employee selector */
         .employee-select {
@@ -230,22 +230,6 @@
             font-size: 0.9rem;
             margin-bottom: 1rem;
             min-width: 200px;
-        }
-        
-        /* Employee detail section */
-        .employee-detail-section {
-            margin-top: 1.5rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid #eee;
-        }
-        .employee-detail-section h3 {
-            margin-bottom: 1rem;
-            color: #211F54;
-        }
-        .employee-chart-container {
-            position: relative;
-            height: 350px;
-            margin-bottom: 1rem;
         }
         
         /* Loading */
@@ -306,8 +290,8 @@
         <!-- Date Filter Bar -->
         <div class="date-filter-bar">
             <label>📅 Période :</label>
-            <button class="date-preset active" data-preset="all">Tout</button>
-            <button class="date-preset" data-preset="lastmonth">Mois dernier</button>
+            <button class="date-preset" data-preset="all">Tout</button>
+            <button class="date-preset active" data-preset="lastmonth">Mois dernier</button>
             <button class="date-preset" data-preset="30d">30 jours</button>
             <button class="date-preset" data-preset="3m">3 mois</button>
             <button class="date-preset" data-preset="6m">6 mois</button>
@@ -320,7 +304,7 @@
                 <input type="date" class="date-input" id="dateTo">
                 <button class="apply-btn" onclick="applyCustomDates()">Appliquer</button>
             </div>
-            <div class="current-period" id="currentPeriod">Toutes les données</div>
+            <div class="current-period" id="currentPeriod">Mois dernier</div>
         </div>
         
         <div class="container">
@@ -392,19 +376,11 @@
                         <canvas id="teamChart"></canvas>
                     </div>
                     <div>
-                        <h3 style="margin-bottom: 1rem;">Sélectionner un employé</h3>
+                        <h3 style="margin-bottom: 1rem;">Filtrer par employé</h3>
                         <select class="employee-select" id="employeeSelect">
-                            <option value="">Choisir...</option>
+                            <option value="">Tous les employés</option>
                         </select>
                         <div id="employeeDetail"></div>
-                    </div>
-                </div>
-                
-                <!-- Employee Deep Dive Section -->
-                <div class="employee-detail-section" id="employeeDeepDive" style="display: none;">
-                    <h3 id="employeeDeepDiveTitle">Répartition par client</h3>
-                    <div class="employee-chart-container">
-                        <canvas id="employeeTimeChart"></canvas>
                     </div>
                 </div>
                 
@@ -452,12 +428,30 @@
                                 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
         
         function formatMonthFR(monthStr) {
-            // Convert "2025-12" to "Décembre 25"
             if (!monthStr) return '';
             const [year, month] = monthStr.split('-');
             const monthIndex = parseInt(month, 10) - 1;
             const shortYear = year.slice(-2);
             return `${MONTH_NAMES_FR[monthIndex]} ${shortYear}`;
+        }
+        
+        // ============== CLIENT COLORS (consistent across charts) ==============
+        const CLIENT_COLORS = {};
+        const COLOR_PALETTE = [
+            '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
+            '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c',
+            '#059669', '#7c3aed', '#0284c7', '#b91c1c', '#4f46e5',
+            '#0d9488', '#ca8a04', '#be185d', '#1d4ed8', '#15803d',
+            '#7c2d12', '#134e4a', '#581c87', '#0c4a6e', '#365314'
+        ];
+        let colorIndex = 0;
+        
+        function getClientColor(clientName) {
+            if (!CLIENT_COLORS[clientName]) {
+                CLIENT_COLORS[clientName] = COLOR_PALETTE[colorIndex % COLOR_PALETTE.length];
+                colorIndex++;
+            }
+            return CLIENT_COLORS[clientName];
         }
         
         // ============== DATE FILTER STATE ==============
@@ -494,7 +488,8 @@
             document.getElementById('dashboard').classList.add('visible');
             document.getElementById('userName').textContent = currentUser.name;
             document.getElementById('userPhoto').src = currentUser.picture;
-            init();
+            // Set default to last month
+            setDatePreset('lastmonth');
         }
         
         function logout() {
@@ -539,7 +534,7 @@
             const year = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear();
             const month = today.getMonth() === 0 ? 11 : today.getMonth() - 1;
             const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0); // Last day of the month
+            const lastDay = new Date(year, month + 1, 0);
             return { firstDay, lastDay, monthName: MONTH_NAMES_FR[month], year };
         }
         
@@ -591,15 +586,13 @@
                     break;
                 case 'custom':
                     customRange.classList.add('visible');
-                    return; // Don't reload yet
+                    return;
             }
             
-            // Update active button
             document.querySelectorAll('.date-preset').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.preset === preset);
             });
             
-            // Reload data
             init();
         }
         
@@ -617,7 +610,6 @@
             
             document.getElementById('currentPeriod').textContent = `${fromInput} → ${toInput}`;
             
-            // Update active state
             document.querySelectorAll('.date-preset').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.preset === 'custom');
             });
@@ -625,16 +617,16 @@
             init();
         }
         
-        // Bind preset buttons
         document.querySelectorAll('.date-preset').forEach(btn => {
             btn.addEventListener('click', () => setDatePreset(btn.dataset.preset));
         });
         
         // ============== DASHBOARD ==============
-        let clientsChart, monthlyChart, hoursChart, teamChart, employeeTimeChart;
+        let clientsChart, monthlyChart, hoursChart, teamChart;
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
+        let employeesBreakdown = [];
         
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
@@ -668,21 +660,19 @@
         }
         
         async function init() {
-            // Show loading state
             document.getElementById('kpiRevenue').textContent = '...';
             document.getElementById('kpiCost').textContent = '...';
             document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
             
-            // Hide employee deep dive when refreshing
-            document.getElementById('employeeDeepDive').style.display = 'none';
             document.getElementById('employeeSelect').value = '';
             document.getElementById('employeeDetail').innerHTML = '';
             
-            [clientsData, monthlyData, employeesData] = await Promise.all([
+            [clientsData, monthlyData, employeesData, employeesBreakdown] = await Promise.all([
                 fetchData('/api/clients'),
                 fetchData('/api/monthly'),
-                fetchData('/api/employees')
+                fetchData('/api/employees'),
+                fetchData('/api/employees-breakdown')
             ]);
             
             if (!clientsData) return;
@@ -783,10 +773,7 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    },
+                    interaction: { intersect: false, mode: 'index' },
                     plugins: { 
                         legend: { position: 'top' },
                         tooltip: {
@@ -825,131 +812,41 @@
             });
         }
         
-        function renderTeamChart() {
-            if (!employeesData || employeesData.length === 0) return;
+        function renderTeamChart(filterEmployee = null) {
+            if (!employeesBreakdown || employeesBreakdown.length === 0) return;
             const ctx = document.getElementById('teamChart').getContext('2d');
             
-            const colors = ['#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c', '#059669', '#7c3aed', '#0284c7', '#b91c1c'];
+            // Get all unique clients and employees
+            const allClients = [...new Set(employeesBreakdown.map(e => e.client_name))];
+            let employees = [...new Set(employeesBreakdown.map(e => e.employee_name))];
+            
+            // Sort employees by total hours
+            const employeeTotals = {};
+            employeesBreakdown.forEach(e => {
+                employeeTotals[e.employee_name] = (employeeTotals[e.employee_name] || 0) + e.hours;
+            });
+            employees.sort((a, b) => employeeTotals[b] - employeeTotals[a]);
+            
+            // Filter if specific employee selected
+            if (filterEmployee) {
+                employees = employees.filter(e => e === filterEmployee);
+            }
+            
+            // Create datasets for each client
+            const datasets = allClients.map(client => ({
+                label: client,
+                data: employees.map(emp => {
+                    const item = employeesBreakdown.find(e => e.employee_name === emp && e.client_name === client);
+                    return item ? item.hours : 0;
+                }),
+                backgroundColor: getClientColor(client)
+            }));
             
             if (teamChart) teamChart.destroy();
             teamChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
-                    labels: employeesData.map(e => e.employee_name),
-                    datasets: [{
-                        label: 'Heures',
-                        data: employeesData.map(e => e.total_hours),
-                        backgroundColor: colors
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.raw.toLocaleString('en-GB') + ' heures';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-            
-            const select = document.getElementById('employeeSelect');
-            select.innerHTML = '<option value="">Choisir un employé...</option>' +
-                employeesData.map(e => `<option value="${e.employee_id}">${e.employee_name}</option>`).join('');
-            select.onchange = () => loadEmployeeDetail(select.value);
-        }
-        
-        function renderTeamTable() {
-            if (!employeesData) return;
-            const tbody = document.querySelector('#teamTable tbody');
-            tbody.innerHTML = employeesData.map(e => `
-                <tr>
-                    <td><strong>${e.employee_name}</strong></td>
-                    <td class="text-right">${formatNumber(e.total_hours)}h</td>
-                    <td class="text-right">${formatCurrency(e.total_cost)}</td>
-                    <td class="text-right">${e.nb_clients}</td>
-                </tr>
-            `).join('');
-        }
-        
-        async function loadEmployeeDetail(employeeId) {
-            const container = document.getElementById('employeeDetail');
-            const deepDive = document.getElementById('employeeDeepDive');
-            
-            if (!employeeId) {
-                container.innerHTML = '';
-                deepDive.style.display = 'none';
-                return;
-            }
-            
-            container.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement...</div>';
-            const data = await fetchData('/api/employee/' + employeeId);
-            
-            if (!data || data.length === 0) {
-                container.innerHTML = '<p>Aucune donnée pour cette période</p>';
-                deepDive.style.display = 'none';
-                return;
-            }
-            
-            // Get employee name
-            const employee = employeesData.find(e => e.employee_id === employeeId);
-            const employeeName = employee ? employee.employee_name : employeeId;
-            
-            // Group by month
-            const byMonth = {};
-            data.forEach(d => {
-                if (!byMonth[d.month]) byMonth[d.month] = [];
-                byMonth[d.month].push(d);
-            });
-            
-            // Render text list
-            container.innerHTML = Object.entries(byMonth).map(([month, items]) => `
-                <div style="margin-bottom: 1rem;">
-                    <strong>${formatMonthFR(month)}</strong>
-                    <div style="font-size: 0.85rem; color: #666;">
-                        ${items.slice(0, 5).map(i => `${i.client_name}: ${i.hours}h`).join('<br>')}
-                        ${items.length > 5 ? '<br>...' : ''}
-                    </div>
-                </div>
-            `).join('');
-            
-            // Render stacked bar chart
-            deepDive.style.display = 'block';
-            document.getElementById('employeeDeepDiveTitle').textContent = `${employeeName} - Heures par client`;
-            
-            // Prepare data for stacked bar chart
-            const months = Object.keys(byMonth).sort();
-            const allClients = [...new Set(data.map(d => d.client_name))];
-            
-            // Color palette for clients
-            const clientColors = [
-                '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
-                '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c',
-                '#059669', '#7c3aed', '#0284c7', '#b91c1c', '#4f46e5',
-                '#0d9488', '#ca8a04', '#be185d', '#1d4ed8', '#15803d'
-            ];
-            
-            const datasets = allClients.map((client, index) => ({
-                label: client,
-                data: months.map(month => {
-                    const item = byMonth[month].find(d => d.client_name === client);
-                    return item ? item.hours : 0;
-                }),
-                backgroundColor: clientColors[index % clientColors.length]
-            }));
-            
-            const ctx = document.getElementById('employeeTimeChart').getContext('2d');
-            if (employeeTimeChart) employeeTimeChart.destroy();
-            
-            employeeTimeChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: months.map(m => formatMonthFR(m)),
+                    labels: employees,
                     datasets: datasets
                 },
                 options: {
@@ -958,7 +855,7 @@
                     plugins: {
                         legend: {
                             position: 'bottom',
-                            labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
+                            labels: { boxWidth: 12, padding: 6, font: { size: 10 } }
                         },
                         tooltip: {
                             callbacks: {
@@ -978,6 +875,66 @@
                     }
                 }
             });
+            
+            // Populate employee selector
+            const select = document.getElementById('employeeSelect');
+            if (!filterEmployee) {
+                select.innerHTML = '<option value="">Tous les employés</option>' +
+                    employees.map(e => `<option value="${e}">${e}</option>`).join('');
+            }
+            select.onchange = () => {
+                const selected = select.value;
+                renderTeamChart(selected || null);
+                updateEmployeeDetail(selected);
+            };
+        }
+        
+        function updateEmployeeDetail(employeeName) {
+            const container = document.getElementById('employeeDetail');
+            
+            if (!employeeName) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            // Get breakdown for this employee
+            const breakdown = employeesBreakdown
+                .filter(e => e.employee_name === employeeName)
+                .sort((a, b) => b.hours - a.hours);
+            
+            const totalHours = breakdown.reduce((sum, b) => sum + b.hours, 0);
+            
+            container.innerHTML = `
+                <div style="margin-top: 1rem; padding: 1rem; background: #f3f4f6; border-radius: 8px;">
+                    <strong>${employeeName}</strong>
+                    <div style="font-size: 1.5rem; font-weight: 700; color: #211F54;">${totalHours}h</div>
+                    <div style="margin-top: 0.5rem; font-size: 0.85rem; color: #666;">
+                        ${breakdown.slice(0, 8).map(b => `
+                            <div style="display: flex; justify-content: space-between; margin: 0.25rem 0;">
+                                <span style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="width: 10px; height: 10px; background: ${getClientColor(b.client_name)}; border-radius: 2px;"></span>
+                                    ${b.client_name}
+                                </span>
+                                <span>${b.hours}h</span>
+                            </div>
+                        `).join('')}
+                        ${breakdown.length > 8 ? `<div style="color: #999;">+ ${breakdown.length - 8} autres...</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        
+        function renderTeamTable() {
+            if (!employeesData) return;
+            const tbody = document.querySelector('#teamTable tbody');
+            tbody.innerHTML = employeesData.map(e => `
+                <tr>
+                    <td><strong>${e.employee_name}</strong></td>
+                    <td class="text-right">${formatNumber(e.total_hours)}h</td>
+                    <td class="text-right">${formatCurrency(e.total_cost)}</td>
+                    <td class="text-right">${e.nb_clients}</td>
+                </tr>
+            `).join('');
         }
         
         async function loadAlerts() {
