@@ -91,7 +91,7 @@ def get_monthly():
 
 @app.route('/api/employees')
 def get_employees():
-    """Get hours by employee with optional date filter"""
+    """Get hours by employee with optional date filter - INCLUDES MyDigipal hours"""
     date_from, date_to = get_date_params()
     
     params = []
@@ -104,6 +104,7 @@ def get_employees():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
+    # Include ALL clients including mydigipal for total hours worked
     query = f"""
     SELECT 
       employee_id,
@@ -112,7 +113,7 @@ def get_employees():
       ROUND(SUM(cost_gbp), 0) AS total_cost,
       COUNT(DISTINCT client_id) AS nb_clients
     FROM `mydigipal.marts.employee_workload`
-    WHERE client_id != 'mydigipal' {date_filter}
+    WHERE 1=1 {date_filter}
     GROUP BY 1, 2
     ORDER BY total_hours DESC
     """
@@ -123,7 +124,7 @@ def get_employees():
 
 @app.route('/api/employee/<employee_id>')
 def get_employee_detail(employee_id):
-    """Get monthly breakdown for a specific employee"""
+    """Get monthly breakdown for a specific employee - INCLUDES MyDigipal"""
     date_from, date_to = get_date_params()
     
     params = [bigquery.ScalarQueryParameter("employee_id", "STRING", employee_id)]
@@ -139,6 +140,7 @@ def get_employee_detail(employee_id):
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
+    # Include ALL clients including mydigipal
     query = f"""
     SELECT 
       FORMAT_DATE('%Y-%m', month) as month,
@@ -146,8 +148,7 @@ def get_employee_detail(employee_id):
       hours,
       cost_gbp
     FROM `mydigipal.marts.employee_workload`
-    WHERE employee_id = @employee_id
-      AND client_id != 'mydigipal' {date_filter}
+    WHERE employee_id = @employee_id {date_filter}
     ORDER BY month DESC, hours DESC
     """
     
