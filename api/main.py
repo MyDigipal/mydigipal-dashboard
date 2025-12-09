@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.3 - Fixed ORDER BY aggregation error
+# Dashboard API v1.4 - Added client timeline endpoints
 
 app = Flask(__name__)
 CORS(app)
@@ -19,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.3"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.4"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -54,6 +54,111 @@ def get_clients():
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     rows = client.query(query, job_config=job_config).result()
     return jsonify([dict(row) for row in rows])
+
+@app.route('/api/clients-with-hours')
+def get_clients_with_hours():
+    """Get list of clients that have hours logged in the selected period"""
+    date_from, date_to = get_date_params()
+    
+    params = []
+    date_filter = ""
+    
+    if date_from:
+        date_filter += " AND t.date >= @date_from"
+        params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
+    if date_to:
+        date_filter += " AND t.date <= @date_to"
+        params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
+    
+    query = f"""
+    SELECT 
+      t.client_id,
+      COALESCE(c.client_name, t.client_id) as client_name,
+      ROUND(SUM(t.hours), 1) AS total_hours
+    FROM `mydigipal.staging.fct_timesheets` t
+    LEFT JOIN `mydigipal.staging.dim_clients` c ON t.client_id = c.client_id
+    WHERE t.hours > 0 {date_filter}
+    GROUP BY 1, 2
+    HAVING SUM(t.hours) > 0
+    ORDER BY 3 DESC
+    """
+    
+    job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
+    rows = client.query(query, job_config=job_config).result()
+    return jsonify([dict(row) for row in rows])
+
+@app.route('/api/client-timeline/<client_id>')
+def get_client_timeline(client_id):
+    """Get daily hours breakdown by employee for a specific client"""
+    try:
+        date_from, date_to = get_date_params()
+        
+        params = [bigquery.ScalarQueryParameter("client_id", "STRING", client_id)]
+        date_filter = ""
+        
+        if date_from:
+            date_filter += " AND t.date >= @date_from"
+            params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
+        if date_to:
+            date_filter += " AND t.date <= @date_to"
+            params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
+        
+        # Daily breakdown by employee
+        query_daily = f"""
+        SELECT 
+          FORMAT_DATE('%Y-%m-%d', t.date) as date,
+          t.employee_id,
+          COALESCE(e.employee_name, t.employee_id) as employee_name,
+          ROUND(SUM(t.hours), 2) AS hours
+        FROM `mydigipal.staging.fct_timesheets` t
+        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        WHERE t.client_id = @client_id AND t.hours > 0 {date_filter}
+        GROUP BY 1, 2, 3
+        ORDER BY 1, 3
+        """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        daily_rows = client.query(query_daily, job_config=job_config).result()
+        daily_data = [dict(row) for row in daily_rows]
+        
+        # Total by employee for the period
+        query_totals = f"""
+        SELECT 
+          t.employee_id,
+          COALESCE(e.employee_name, t.employee_id) as employee_name,
+          ROUND(SUM(t.hours), 1) AS total_hours
+        FROM `mydigipal.staging.fct_timesheets` t
+        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        WHERE t.client_id = @client_id AND t.hours > 0 {date_filter}
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+        """
+        
+        total_rows = client.query(query_totals, job_config=job_config).result()
+        totals_data = [dict(row) for row in total_rows]
+        
+        # Client info
+        query_client = f"""
+        SELECT 
+          COALESCE(c.client_name, @client_id) as client_name
+        FROM `mydigipal.staging.dim_clients` c
+        WHERE c.client_id = @client_id
+        """
+        client_rows = list(client.query(query_client, job_config=job_config).result())
+        client_name = client_rows[0]['client_name'] if client_rows else client_id
+        
+        return jsonify({
+            "client_id": client_id,
+            "client_name": client_name,
+            "daily": daily_data,
+            "totals": totals_data
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }), 500
 
 @app.route('/api/monthly')
 def get_monthly():
