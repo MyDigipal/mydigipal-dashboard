@@ -1,0 +1,41 @@
+name: Deploy API to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: mydigipal
+
+      - name: Deploy to Cloud Run
+        run: |
+          cd api
+          gcloud run deploy dashboard-api \
+            --source . \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --project mydigipal
+
+      - name: Show deployed URL
+        run: |
+          echo "✅ API deployed successfully!"
+          echo "URL: https://dashboard-api-165058998498.us-central1.run.app"
