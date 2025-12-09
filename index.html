@@ -195,6 +195,7 @@
         }
         .panel.active { display: block; }
         .panel h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #211F54; }
+        .panel h3 { font-size: 1rem; margin: 1.5rem 0 1rem; color: #666; }
         
         /* Tables */
         table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -220,6 +221,29 @@
         
         /* Charts */
         .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
+        .chart-container.tall { height: 500px; }
+        
+        /* Legend for employee colors */
+        .employee-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: #f9f9fc;
+            border-radius: 8px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
         
         /* Loading */
         .loading {
@@ -320,6 +344,7 @@
             <div class="tabs">
                 <button class="tab active" data-tab="clients">📊 Rentabilité</button>
                 <button class="tab" data-tab="monthly">📈 Évolution</button>
+                <button class="tab" data-tab="hours">⏱️ Heures</button>
                 <button class="tab" data-tab="team">👥 Équipe</button>
                 <button class="tab" data-tab="alerts">⚠️ Alertes</button>
             </div>
@@ -353,6 +378,22 @@
                 </div>
                 <div class="chart-container" style="height: 250px;">
                     <canvas id="hoursChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Hours Panel (NEW) -->
+            <div class="panel" id="panel-hours">
+                <h2>⏱️ Répartition des Heures</h2>
+                
+                <h3>Par Employé (split par client)</h3>
+                <div class="chart-container tall">
+                    <canvas id="hoursByEmployeeChart"></canvas>
+                </div>
+                
+                <h3>Par Client (split par employé)</h3>
+                <div id="employeeLegend" class="employee-legend"></div>
+                <div class="chart-container tall">
+                    <canvas id="hoursByClientChart"></canvas>
                 </div>
             </div>
             
@@ -402,6 +443,31 @@
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
         const ALLOWED_EMAILS = ['paul@mydigipal.com'];
         
+        // Employee color palette (consistent colors)
+        const EMPLOYEE_COLORS = {
+            'Alexandre': '#0B6CD9',
+            'Jordan': '#11845B',
+            'Juliette': '#D5691B',
+            'Paul': '#211F54',
+            'Alizée': '#9333ea',
+            'Heather': '#dc2626',
+            'Alizéa': '#9333ea',
+            'Ali\u00e9za': '#9333ea'
+        };
+        const DEFAULT_COLORS = [
+            '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
+            '#dc2626', '#0891b2', '#ca8a04', '#be185d', '#4f46e5',
+            '#059669', '#ea580c', '#7c3aed', '#db2777', '#2563eb'
+        ];
+        
+        // Client color palette (for employee breakdown chart)
+        const CLIENT_COLORS = [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+            '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+            '#14b8a6', '#eab308', '#e11d48', '#a855f7', '#0ea5e9',
+            '#22c55e', '#fbbf24', '#f43f5e', '#a78bfa', '#2dd4bf'
+        ];
+        
         // ============== DATE FORMATTING ==============
         const MONTH_NAMES_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
                                 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -448,7 +514,6 @@
             document.getElementById('dashboard').classList.add('visible');
             document.getElementById('userName').textContent = currentUser.name;
             document.getElementById('userPhoto').src = currentUser.picture;
-            // Set default to last month
             setDatePreset('lastmonth');
         }
         
@@ -583,9 +648,11 @@
         
         // ============== DASHBOARD ==============
         let clientsChart, monthlyChart, hoursChart, teamChart;
+        let hoursByEmployeeChart, hoursByClientChart;
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
+        let breakdownData = [];
         
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
@@ -624,10 +691,11 @@
             document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
             
-            [clientsData, monthlyData, employeesData] = await Promise.all([
+            [clientsData, monthlyData, employeesData, breakdownData] = await Promise.all([
                 fetchData('/api/clients'),
                 fetchData('/api/monthly'),
-                fetchData('/api/employees')
+                fetchData('/api/employees'),
+                fetchData('/api/employees-breakdown')
             ]);
             
             if (!clientsData) return;
@@ -650,6 +718,7 @@
             renderMonthlyChart();
             renderTeamChart();
             renderTeamTable();
+            renderHoursBreakdownCharts();
             loadAlerts();
         }
         
@@ -767,11 +836,160 @@
             });
         }
         
+        function renderHoursBreakdownCharts() {
+            if (!breakdownData || breakdownData.length === 0) return;
+            
+            // ========== CHART 1: Hours by Employee (stacked by client) ==========
+            const employeeMap = {};
+            const allClients = new Set();
+            
+            breakdownData.forEach(row => {
+                if (!employeeMap[row.employee_name]) {
+                    employeeMap[row.employee_name] = { total: 0, clients: {} };
+                }
+                employeeMap[row.employee_name].clients[row.client_name] = row.hours;
+                employeeMap[row.employee_name].total += row.hours;
+                allClients.add(row.client_name);
+            });
+            
+            // Sort employees by total hours desc
+            const sortedEmployees = Object.entries(employeeMap)
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([name]) => name);
+            
+            // Sort clients by total hours across all employees
+            const clientTotals = {};
+            breakdownData.forEach(row => {
+                clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours;
+            });
+            const sortedClients = Object.entries(clientTotals)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name]) => name);
+            
+            // Create datasets for Chart 1 (one dataset per client)
+            const datasetsForEmployeeChart = sortedClients.map((clientName, idx) => ({
+                label: clientName,
+                data: sortedEmployees.map(empName => employeeMap[empName].clients[clientName] || 0),
+                backgroundColor: CLIENT_COLORS[idx % CLIENT_COLORS.length]
+            }));
+            
+            const ctx1 = document.getElementById('hoursByEmployeeChart').getContext('2d');
+            if (hoursByEmployeeChart) hoursByEmployeeChart.destroy();
+            hoursByEmployeeChart = new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: sortedEmployees,
+                    datasets: datasetsForEmployeeChart
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            stacked: true,
+                            ticks: { callback: v => v + 'h' }
+                        },
+                        y: { stacked: true }
+                    }
+                }
+            });
+            
+            // ========== CHART 2: Hours by Client (stacked by employee) ==========
+            const clientMap = {};
+            const allEmployees = new Set();
+            
+            breakdownData.forEach(row => {
+                if (!clientMap[row.client_name]) {
+                    clientMap[row.client_name] = { total: 0, employees: {} };
+                }
+                clientMap[row.client_name].employees[row.employee_name] = row.hours;
+                clientMap[row.client_name].total += row.hours;
+                allEmployees.add(row.employee_name);
+            });
+            
+            // Sort clients by total hours desc
+            const sortedClientsForChart2 = Object.entries(clientMap)
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([name]) => name);
+            
+            // Get unique employees sorted by total hours
+            const employeeTotals = {};
+            breakdownData.forEach(row => {
+                employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours;
+            });
+            const sortedEmployeesForLegend = Object.entries(employeeTotals)
+                .sort((a, b) => b[1] - a[1])
+                .map(([name]) => name);
+            
+            // Assign consistent colors to employees
+            const employeeColorMap = {};
+            sortedEmployeesForLegend.forEach((empName, idx) => {
+                employeeColorMap[empName] = EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
+            });
+            
+            // Render employee legend
+            const legendContainer = document.getElementById('employeeLegend');
+            legendContainer.innerHTML = sortedEmployeesForLegend.map(empName => `
+                <div class="legend-item">
+                    <div class="legend-color" style="background: ${employeeColorMap[empName]}"></div>
+                    <span>${empName}</span>
+                </div>
+            `).join('');
+            
+            // Create datasets for Chart 2 (one dataset per employee)
+            const datasetsForClientChart = sortedEmployeesForLegend.map(empName => ({
+                label: empName,
+                data: sortedClientsForChart2.map(clientName => clientMap[clientName].employees[empName] || 0),
+                backgroundColor: employeeColorMap[empName]
+            }));
+            
+            const ctx2 = document.getElementById('hoursByClientChart').getContext('2d');
+            if (hoursByClientChart) hoursByClientChart.destroy();
+            hoursByClientChart = new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: sortedClientsForChart2,
+                    datasets: datasetsForClientChart
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }, // Using custom legend above
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            stacked: true,
+                            ticks: { callback: v => v + 'h' }
+                        },
+                        y: { stacked: true }
+                    }
+                }
+            });
+        }
+        
         function renderTeamChart() {
             if (!employeesData || employeesData.length === 0) return;
             const ctx = document.getElementById('teamChart').getContext('2d');
             
-            // Simple bar chart - one bar per employee showing total hours
             if (teamChart) teamChart.destroy();
             teamChart = new Chart(ctx, {
                 type: 'bar',
