@@ -6,6 +6,7 @@
     <title>MyDigipal Dashboard</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -415,8 +416,6 @@
                 <button class="tab" data-tab="monthly">📈 Évolution</button>
                 <button class="tab" data-tab="hours">⏱️ Heures</button>
                 <button class="tab" data-tab="clientdetail">🏢 Client</button>
-                <button class="tab" data-tab="team">👥 Équipe</button>
-                <button class="tab" data-tab="alerts">⚠️ Alertes</button>
             </div>
             
             <!-- Clients Panel -->
@@ -520,48 +519,13 @@
                     <p>Sélectionnez un client pour voir le détail des heures travaillées</p>
                 </div>
             </div>
-            
-            <!-- Team Panel -->
-            <div class="panel" id="panel-team">
-                <h2>Répartition par Employé</h2>
-                <div class="chart-container">
-                    <canvas id="teamChart"></canvas>
-                </div>
-                
-                <table id="teamTable">
-                    <thead>
-                        <tr>
-                            <th>Employé</th>
-                            <th class="text-right">Heures</th>
-                            <th class="text-right">Coût</th>
-                            <th class="text-right">Clients</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            
-            <!-- Alerts Panel -->
-            <div class="panel" id="panel-alerts">
-                <h2>Clients à Surveiller</h2>
-                <table id="alertsTable">
-                    <thead>
-                        <tr>
-                            <th>Client</th>
-                            <th>Alerte</th>
-                            <th class="text-right">Revenue</th>
-                            <th class="text-right">Coût</th>
-                            <th class="text-right">Profit</th>
-                            <th class="text-right">Marge</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
         </div>
     </div>
 
     <script>
+        // Disable datalabels globally - only enable on specific charts
+        Chart.defaults.plugins.datalabels = { display: false };
+        
         // ============== CONFIGURATION ==============
         const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
@@ -780,7 +744,7 @@
         });
         
         // ============== DASHBOARD ==============
-        let clientsChart, monthlyChart, hoursChart, teamChart;
+        let clientsChart, monthlyChart, hoursChart;
         let hoursByEmployeeChart, hoursByClientChart;
         let clientTimelineChart, clientEmployeesChart;
         let clientsData = [];
@@ -800,12 +764,12 @@
                 tab.classList.add('active');
                 document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
                 
-                // Hide KPIs on Hours and Client Detail tabs
+                // Show KPIs ONLY on Rentabilité and Evolution tabs
                 const kpiGrid = document.getElementById('kpiGrid');
-                if (tab.dataset.tab === 'hours' || tab.dataset.tab === 'clientdetail') {
-                    kpiGrid.classList.add('hidden');
-                } else {
+                if (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly') {
                     kpiGrid.classList.remove('hidden');
+                } else {
+                    kpiGrid.classList.add('hidden');
                 }
                 
                 // Load client list when switching to client detail tab
@@ -871,10 +835,7 @@
             renderClientsChart();
             renderClientsTable();
             renderMonthlyChart();
-            renderTeamChart();
-            renderTeamTable();
             renderHoursBreakdownCharts();
-            loadAlerts();
             
             // Pre-load clients with hours for the client detail tab
             loadClientsWithHours();
@@ -962,7 +923,8 @@
                             callbacks: {
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
                             }
-                        }
+                        },
+                        datalabels: { display: false }
                     },
                     scales: {
                         x: { 
@@ -1014,7 +976,8 @@
                                     return `${ctx.label}: ${ctx.raw}h (${pct}%)`;
                                 }
                             }
-                        }
+                        },
+                        datalabels: { display: false }
                     }
                 }
             });
@@ -1070,7 +1033,8 @@
                                     return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
                                 }
                             }
-                        }
+                        },
+                        datalabels: { display: false }
                     },
                     scales: { x: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
                 }
@@ -1156,7 +1120,8 @@
                                     return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
                                 }
                             }
-                        }
+                        },
+                        datalabels: { display: false }
                     },
                     scales: { y: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
                 }
@@ -1180,7 +1145,8 @@
                                     return context.raw.toLocaleString('en-GB') + ' heures';
                                 }
                             }
-                        }
+                        },
+                        datalabels: { display: false }
                     }
                 }
             });
@@ -1213,6 +1179,9 @@
                 .sort((a, b) => b[1].total - a[1].total)
                 .map(([name]) => name);
             
+            // Calculate totals for each employee (for datalabels)
+            const employeeTotalsArr = sortedEmployees.map(empName => Math.round(employeeMap[empName].total));
+            
             // Sort clients by total hours across all employees
             const clientTotals = {};
             filteredData.forEach(row => {
@@ -1237,6 +1206,7 @@
                     labels: sortedEmployees,
                     datasets: datasetsForEmployeeChart
                 },
+                plugins: [ChartDataLabels],
                 options: {
                     indexAxis: 'y',
                     responsive: true,
@@ -1250,6 +1220,23 @@
                             callbacks: {
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
                             }
+                        },
+                        datalabels: {
+                            display: function(context) {
+                                // Only show on the last dataset (rightmost segment)
+                                return context.datasetIndex === context.chart.data.datasets.length - 1;
+                            },
+                            anchor: 'end',
+                            align: 'end',
+                            offset: 4,
+                            formatter: function(value, context) {
+                                // Calculate total for this bar
+                                const dataIndex = context.dataIndex;
+                                const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
+                                return Math.round(total) + 'h';
+                            },
+                            font: { weight: 'bold', size: 11 },
+                            color: '#211F54'
                         }
                     },
                     scales: {
@@ -1310,6 +1297,7 @@
                     labels: sortedClientsForChart2,
                     datasets: datasetsForClientChart
                 },
+                plugins: [ChartDataLabels],
                 options: {
                     indexAxis: 'y',
                     responsive: true,
@@ -1323,6 +1311,23 @@
                             callbacks: {
                                 label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
                             }
+                        },
+                        datalabels: {
+                            display: function(context) {
+                                // Only show on the last dataset (rightmost segment)
+                                return context.datasetIndex === context.chart.data.datasets.length - 1;
+                            },
+                            anchor: 'end',
+                            align: 'end',
+                            offset: 4,
+                            formatter: function(value, context) {
+                                // Calculate total for this bar
+                                const dataIndex = context.dataIndex;
+                                const total = context.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[dataIndex] || 0), 0);
+                                return Math.round(total) + 'h';
+                            },
+                            font: { weight: 'bold', size: 11 },
+                            color: '#211F54'
                         }
                     },
                     scales: {
@@ -1334,79 +1339,6 @@
                     }
                 }
             });
-        }
-        
-        function renderTeamChart() {
-            if (!employeesData || employeesData.length === 0) return;
-            const ctx = document.getElementById('teamChart').getContext('2d');
-            
-            if (teamChart) teamChart.destroy();
-            teamChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: employeesData.map(e => e.employee_name),
-                    datasets: [{
-                        label: 'Heures',
-                        data: employeesData.map(e => e.total_hours),
-                        backgroundColor: '#0B6CD9'
-                    }]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.raw + ' heures';
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: { ticks: { callback: v => v + 'h' } }
-                    }
-                }
-            });
-        }
-        
-        function renderTeamTable() {
-            if (!employeesData) return;
-            const tbody = document.querySelector('#teamTable tbody');
-            tbody.innerHTML = employeesData.map(e => `
-                <tr>
-                    <td><strong>${e.employee_name}</strong></td>
-                    <td class="text-right">${formatNumber(e.total_hours)}h</td>
-                    <td class="text-right">${formatCurrency(e.total_cost)}</td>
-                    <td class="text-right">${e.nb_clients}</td>
-                </tr>
-            `).join('');
-        }
-        
-        async function loadAlerts() {
-            const data = await fetchData('/api/alerts');
-            if (!data) return;
-            
-            const tbody = document.querySelector('#alertsTable tbody');
-            tbody.innerHTML = data.map(a => {
-                const profit = (a.total_revenue_gbp || 0) - (a.total_cost_gbp || 0);
-                const margin = a.total_revenue_gbp ? Math.round(profit / a.total_revenue_gbp * 100) : 0;
-                return `
-                <tr>
-                    <td><strong>${a.client_name || a.client_id}</strong></td>
-                    <td><span class="badge low">${a.alert_type}</span><br><small>${a.alert_message}</small></td>
-                    <td class="text-right">${formatCurrency(a.total_revenue_gbp)}</td>
-                    <td class="text-right text-red">${formatCurrency(a.total_cost_gbp)}</td>
-                    <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
-                    <td class="text-right">
-                        <span class="badge ${margin >= 50 ? 'high' : margin >= 0 ? 'medium' : 'low'}">
-                            ${margin}%
-                        </span>
-                    </td>
-                </tr>
-            `}).join('');
         }
     </script>
 </body>
