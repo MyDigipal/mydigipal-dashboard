@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyDigipal Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
+            background: #EFF0F6; 
+            color: #211F54;
+            min-height: 100vh;
+        }
+        .header {
+            background: #211F54;
+            color: white;
+            padding: 1.5rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header .subtitle { opacity: 0.7; font-size: 0.9rem; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+        
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .kpi-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.25rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .kpi-card .label { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+        .kpi-card .value { font-size: 1.75rem; font-weight: 700; }
+        .kpi-card .value.green { color: #11845B; }
+        .kpi-card .value.blue { color: #0B6CD9; }
+        .kpi-card .value.purple { color: #211F54; }
+        .kpi-card .value.orange { color: #D5691B; }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .tab {
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            border: none;
+            background: white;
+            color: #666;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .tab:hover { background: #e8e8f0; }
+        .tab.active { background: #0B6CD9; color: white; }
+        
+        /* Content panels */
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            display: none;
+        }
+        .panel.active { display: block; }
+        .panel h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #211F54; }
+        
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th { text-align: left; padding: 0.75rem; background: #EFF0F6; font-weight: 600; }
+        td { padding: 0.75rem; border-bottom: 1px solid #eee; }
+        tr:hover { background: #f9f9fc; }
+        .text-right { text-align: right; }
+        .text-green { color: #11845B; font-weight: 600; }
+        .text-red { color: #dc2626; }
+        .text-blue { color: #0B6CD9; }
+        
+        /* Badges */
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge.high { background: #dcfce7; color: #166534; }
+        .badge.medium { background: #fef3c7; color: #92400e; }
+        .badge.low { background: #fee2e2; color: #991b1b; }
+        
+        /* Charts */
+        .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
+        .chart-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; }
+        
+        /* Employee selector */
+        .employee-select {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+        
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: #666;
+        }
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #EFF0F6;
+            border-top-color: #0B6CD9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 0.75rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+            .chart-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>MyDigipal Dashboard</h1>
+            <div class="subtitle">Rentabilité & Performance</div>
+        </div>
+        <div class="subtitle" id="lastUpdate">Chargement...</div>
+    </div>
+    
+    <div class="container">
+        <!-- KPI Cards -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="label">Profit Total</div>
+                <div class="value green" id="kpiProfit">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="label">Revenue Total</div>
+                <div class="value blue" id="kpiRevenue">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="label">Marge Moyenne</div>
+                <div class="value purple" id="kpiMargin">-</div>
+            </div>
+            <div class="kpi-card">
+                <div class="label">Heures Facturables</div>
+                <div class="value orange" id="kpiHours">-</div>
+            </div>
+        </div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="clients">📊 Rentabilité Clients</button>
+            <button class="tab" data-tab="monthly">📈 Évolution Mensuelle</button>
+            <button class="tab" data-tab="team">👥 Équipe</button>
+            <button class="tab" data-tab="alerts">⚠️ Alertes</button>
+        </div>
+        
+        <!-- Clients Panel -->
+        <div class="panel active" id="panel-clients">
+            <h2>Rentabilité par Client</h2>
+            <div class="chart-container">
+                <canvas id="clientsChart"></canvas>
+            </div>
+            <table id="clientsTable">
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th class="text-right">Heures</th>
+                        <th class="text-right">Coût</th>
+                        <th class="text-right">Revenue</th>
+                        <th class="text-right">Profit</th>
+                        <th class="text-right">Marge</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        
+        <!-- Monthly Panel -->
+        <div class="panel" id="panel-monthly">
+            <h2>Évolution Mensuelle 2025</h2>
+            <div class="chart-container">
+                <canvas id="monthlyChart"></canvas>
+            </div>
+            <div class="chart-container" style="height: 250px;">
+                <canvas id="hoursChart"></canvas>
+            </div>
+        </div>
+        
+        <!-- Team Panel -->
+        <div class="panel" id="panel-team">
+            <h2>Répartition par Employé</h2>
+            <div class="chart-row">
+                <div class="chart-container">
+                    <canvas id="teamChart"></canvas>
+                </div>
+                <div>
+                    <h3 style="margin-bottom: 1rem;">Détail par employé</h3>
+                    <select class="employee-select" id="employeeSelect">
+                        <option value="">Sélectionner un employé...</option>
+                    </select>
+                    <div id="employeeDetail"></div>
+                </div>
+            </div>
+            <table id="teamTable">
+                <thead>
+                    <tr>
+                        <th>Employé</th>
+                        <th class="text-right">Heures</th>
+                        <th class="text-right">Coût</th>
+                        <th class="text-right">Clients</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        
+        <!-- Alerts Panel -->
+        <div class="panel" id="panel-alerts">
+            <h2>Clients à Surveiller</h2>
+            <table id="alertsTable">
+                <thead>
+                    <tr>
+                        <th>Client</th>
+                        <th>Alerte</th>
+                        <th class="text-right">Heures</th>
+                        <th class="text-right">Coût</th>
+                        <th class="text-right">Revenue</th>
+                        <th class="text-right">Profit</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Configuration - UPDATE THIS after deploying the API
+        const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
+        
+        // Charts instances
+        let clientsChart, monthlyChart, hoursChart, teamChart;
+        
+        // Data storage
+        let clientsData = [];
+        let monthlyData = [];
+        let employeesData = [];
+        
+        // Formatting
+        const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
+        const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
+        const formatPercent = (n) => (n || 0) + '%';
+        
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+            });
+        });
+        
+        // Fetch data
+        async function fetchData(endpoint) {
+            try {
+                const res = await fetch(API_URL + endpoint);
+                if (!res.ok) throw new Error('API Error');
+                return await res.json();
+            } catch (e) {
+                console.error('Fetch error:', e);
+                return null;
+            }
+        }
+        
+        // Initialize dashboard
+        async function init() {
+            document.getElementById('lastUpdate').textContent = 'Chargement...';
+            
+            // Fetch all data
+            [clientsData, monthlyData, employeesData] = await Promise.all([
+                fetchData('/api/clients'),
+                fetchData('/api/monthly'),
+                fetchData('/api/employees')
+            ]);
+            
+            if (!clientsData) {
+                document.getElementById('lastUpdate').textContent = 'Erreur de connexion';
+                return;
+            }
+            
+            // Update KPIs
+            const totals = clientsData.reduce((acc, c) => ({
+                profit: acc.profit + (c.profit || 0),
+                revenue: acc.revenue + (c.revenue || 0),
+                hours: acc.hours + (c.hours || 0)
+            }), { profit: 0, revenue: 0, hours: 0 });
+            
+            document.getElementById('kpiProfit').textContent = formatCurrency(totals.profit);
+            document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
+            document.getElementById('kpiMargin').textContent = Math.round(totals.profit / totals.revenue * 100) + '%';
+            document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
+            
+            // Render charts and tables
+            renderClientsChart();
+            renderClientsTable();
+            renderMonthlyChart();
+            renderTeamChart();
+            renderTeamTable();
+            loadAlerts();
+            
+            document.getElementById('lastUpdate').textContent = 'Mis à jour: ' + new Date().toLocaleString('fr-FR');
+        }
+        
+        function renderClientsChart() {
+            const top15 = clientsData.slice(0, 15);
+            const ctx = document.getElementById('clientsChart').getContext('2d');
+            
+            if (clientsChart) clientsChart.destroy();
+            clientsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: top15.map(c => c.client_name),
+                    datasets: [
+                        { label: 'Profit', data: top15.map(c => c.profit), backgroundColor: '#11845B' },
+                        { label: 'Coût', data: top15.map(c => c.cost), backgroundColor: '#dc2626' }
+                    ]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { x: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
+                }
+            });
+        }
+        
+        function renderClientsTable() {
+            const tbody = document.querySelector('#clientsTable tbody');
+            tbody.innerHTML = clientsData.map(c => `
+                <tr>
+                    <td><strong>${c.client_name}</strong></td>
+                    <td class="text-right">${formatNumber(c.hours)}h</td>
+                    <td class="text-right text-red">${formatCurrency(c.cost)}</td>
+                    <td class="text-right text-blue">${formatCurrency(c.revenue)}</td>
+                    <td class="text-right text-green">${formatCurrency(c.profit)}</td>
+                    <td class="text-right">
+                        <span class="badge ${c.margin >= 70 ? 'high' : c.margin >= 50 ? 'medium' : 'low'}">
+                            ${c.margin}%
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function renderMonthlyChart() {
+            if (!monthlyData) return;
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            const ctx2 = document.getElementById('hoursChart').getContext('2d');
+            
+            const labels = monthlyData.map(m => m.month);
+            
+            if (monthlyChart) monthlyChart.destroy();
+            monthlyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Revenue', data: monthlyData.map(m => m.revenue), borderColor: '#0B6CD9', tension: 0.3 },
+                        { label: 'Profit', data: monthlyData.map(m => m.profit), borderColor: '#11845B', tension: 0.3 },
+                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } },
+                    scales: { y: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
+                }
+            });
+            
+            if (hoursChart) hoursChart.destroy();
+            hoursChart = new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{ label: 'Heures', data: monthlyData.map(m => m.hours), backgroundColor: '#211F54' }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+        
+        function renderTeamChart() {
+            if (!employeesData) return;
+            const ctx = document.getElementById('teamChart').getContext('2d');
+            
+            const colors = ['#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c'];
+            
+            if (teamChart) teamChart.destroy();
+            teamChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: employeesData.map(e => e.employee_name),
+                    datasets: [{
+                        label: 'Heures',
+                        data: employeesData.map(e => e.total_hours),
+                        backgroundColor: colors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+            
+            // Populate employee select
+            const select = document.getElementById('employeeSelect');
+            select.innerHTML = '<option value="">Sélectionner un employé...</option>' +
+                employeesData.map(e => `<option value="${e.employee_id}">${e.employee_name}</option>`).join('');
+            select.onchange = () => loadEmployeeDetail(select.value);
+        }
+        
+        function renderTeamTable() {
+            if (!employeesData) return;
+            const tbody = document.querySelector('#teamTable tbody');
+            tbody.innerHTML = employeesData.map(e => `
+                <tr>
+                    <td><strong>${e.employee_name}</strong></td>
+                    <td class="text-right">${formatNumber(e.total_hours)}h</td>
+                    <td class="text-right">${formatCurrency(e.total_cost)}</td>
+                    <td class="text-right">${e.nb_clients}</td>
+                </tr>
+            `).join('');
+        }
+        
+        async function loadEmployeeDetail(employeeId) {
+            const container = document.getElementById('employeeDetail');
+            if (!employeeId) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement...</div>';
+            const data = await fetchData('/api/employee/' + employeeId);
+            
+            if (!data || data.length === 0) {
+                container.innerHTML = '<p>Aucune donnée</p>';
+                return;
+            }
+            
+            // Group by month
+            const byMonth = {};
+            data.forEach(d => {
+                if (!byMonth[d.month]) byMonth[d.month] = [];
+                byMonth[d.month].push(d);
+            });
+            
+            container.innerHTML = Object.entries(byMonth).map(([month, items]) => `
+                <div style="margin-bottom: 1rem;">
+                    <strong>${month}</strong>
+                    <div style="font-size: 0.85rem; color: #666;">
+                        ${items.slice(0, 5).map(i => `${i.client_name}: ${i.hours}h`).join('<br>')}
+                        ${items.length > 5 ? '<br>...' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        async function loadAlerts() {
+            const data = await fetchData('/api/alerts');
+            if (!data) return;
+            
+            const tbody = document.querySelector('#alertsTable tbody');
+            tbody.innerHTML = data.map(a => `
+                <tr>
+                    <td><strong>${a.client_name || a.client_id}</strong></td>
+                    <td><span class="badge low">${a.alert_type}</span><br><small>${a.alert_message}</small></td>
+                    <td class="text-right">${formatNumber(a.total_hours)}h</td>
+                    <td class="text-right text-red">${formatCurrency(a.total_cost_gbp)}</td>
+                    <td class="text-right">${formatCurrency(a.total_revenue_gbp)}</td>
+                    <td class="text-right ${a.total_profit_gbp < 0 ? 'text-red' : 'text-green'}">${formatCurrency(a.total_profit_gbp)}</td>
+                </tr>
+            `).join('');
+        }
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>
