@@ -228,6 +228,23 @@
             border-radius: 6px;
             font-size: 0.9rem;
             margin-bottom: 1rem;
+            min-width: 200px;
+        }
+        
+        /* Employee detail section */
+        .employee-detail-section {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid #eee;
+        }
+        .employee-detail-section h3 {
+            margin-bottom: 1rem;
+            color: #211F54;
+        }
+        .employee-chart-container {
+            position: relative;
+            height: 350px;
+            margin-bottom: 1rem;
         }
         
         /* Loading */
@@ -308,26 +325,26 @@
             <!-- KPI Cards -->
             <div class="kpi-grid">
                 <div class="kpi-card">
-                    <div class="label">Profit Total</div>
-                    <div class="value green" id="kpiProfit">-</div>
-                </div>
-                <div class="kpi-card">
                     <div class="label">Revenue Total</div>
                     <div class="value blue" id="kpiRevenue">-</div>
                 </div>
                 <div class="kpi-card">
+                    <div class="label">Coût Total</div>
+                    <div class="value orange" id="kpiCost">-</div>
+                </div>
+                <div class="kpi-card">
                     <div class="label">Marge Moyenne</div>
-                    <div class="value purple" id="kpiMargin">-</div>
+                    <div class="value green" id="kpiMargin">-</div>
                 </div>
                 <div class="kpi-card">
                     <div class="label">Heures Facturables</div>
-                    <div class="value orange" id="kpiHours">-</div>
+                    <div class="value purple" id="kpiHours">-</div>
                 </div>
             </div>
             
             <!-- Tabs -->
             <div class="tabs">
-                <button class="tab active" data-tab="clients">📊 Rentabilité Clients</button>
+                <button class="tab active" data-tab="clients">📊 Rentabilité</button>
                 <button class="tab" data-tab="monthly">📈 Évolution Mensuelle</button>
                 <button class="tab" data-tab="team">👥 Équipe</button>
                 <button class="tab" data-tab="alerts">⚠️ Alertes</button>
@@ -346,7 +363,6 @@
                             <th class="text-right">Heures</th>
                             <th class="text-right">Coût</th>
                             <th class="text-right">Revenue</th>
-                            <th class="text-right">Profit</th>
                             <th class="text-right">Marge</th>
                         </tr>
                     </thead>
@@ -373,13 +389,22 @@
                         <canvas id="teamChart"></canvas>
                     </div>
                     <div>
-                        <h3 style="margin-bottom: 1rem;">Détail par employé</h3>
+                        <h3 style="margin-bottom: 1rem;">Sélectionner un employé</h3>
                         <select class="employee-select" id="employeeSelect">
-                            <option value="">Sélectionner un employé...</option>
+                            <option value="">Choisir...</option>
                         </select>
                         <div id="employeeDetail"></div>
                     </div>
                 </div>
+                
+                <!-- Employee Deep Dive Section -->
+                <div class="employee-detail-section" id="employeeDeepDive" style="display: none;">
+                    <h3 id="employeeDeepDiveTitle">Répartition par client</h3>
+                    <div class="employee-chart-container">
+                        <canvas id="employeeTimeChart"></canvas>
+                    </div>
+                </div>
+                
                 <table id="teamTable">
                     <thead>
                         <tr>
@@ -404,7 +429,7 @@
                             <th class="text-right">Heures</th>
                             <th class="text-right">Coût</th>
                             <th class="text-right">Revenue</th>
-                            <th class="text-right">Profit</th>
+                            <th class="text-right">Marge</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -418,6 +443,19 @@
         const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
         const ALLOWED_EMAILS = ['paul@mydigipal.com'];
+        
+        // ============== DATE FORMATTING ==============
+        const MONTH_NAMES_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+                                'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+        
+        function formatMonthFR(monthStr) {
+            // Convert "2025-12" to "Décembre 25"
+            if (!monthStr) return '';
+            const [year, month] = monthStr.split('-');
+            const monthIndex = parseInt(month, 10) - 1;
+            const shortYear = year.slice(-2);
+            return `${MONTH_NAMES_FR[monthIndex]} ${shortYear}`;
+        }
         
         // ============== DATE FILTER STATE ==============
         let dateFrom = null;
@@ -575,7 +613,7 @@
         });
         
         // ============== DASHBOARD ==============
-        let clientsChart, monthlyChart, hoursChart, teamChart;
+        let clientsChart, monthlyChart, hoursChart, teamChart, employeeTimeChart;
         let clientsData = [];
         let monthlyData = [];
         let employeesData = [];
@@ -613,10 +651,15 @@
         
         async function init() {
             // Show loading state
-            document.getElementById('kpiProfit').textContent = '...';
             document.getElementById('kpiRevenue').textContent = '...';
+            document.getElementById('kpiCost').textContent = '...';
             document.getElementById('kpiMargin').textContent = '...';
             document.getElementById('kpiHours').textContent = '...';
+            
+            // Hide employee deep dive when refreshing
+            document.getElementById('employeeDeepDive').style.display = 'none';
+            document.getElementById('employeeSelect').value = '';
+            document.getElementById('employeeDetail').innerHTML = '';
             
             [clientsData, monthlyData, employeesData] = await Promise.all([
                 fetchData('/api/clients'),
@@ -627,14 +670,14 @@
             if (!clientsData) return;
             
             const totals = clientsData.reduce((acc, c) => ({
-                profit: acc.profit + (c.profit || 0),
                 revenue: acc.revenue + (c.revenue || 0),
+                cost: acc.cost + (c.cost || 0),
                 hours: acc.hours + (c.hours || 0)
-            }), { profit: 0, revenue: 0, hours: 0 });
+            }), { revenue: 0, cost: 0, hours: 0 });
             
-            document.getElementById('kpiProfit').textContent = formatCurrency(totals.profit);
             document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
-            document.getElementById('kpiMargin').textContent = totals.revenue ? Math.round(totals.profit / totals.revenue * 100) + '%' : '0%';
+            document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
+            document.getElementById('kpiMargin').textContent = totals.revenue ? Math.round((totals.revenue - totals.cost) / totals.revenue * 100) + '%' : '0%';
             document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
             
             renderClientsChart();
@@ -655,7 +698,7 @@
                 data: {
                     labels: top15.map(c => c.client_name),
                     datasets: [
-                        { label: 'Profit', data: top15.map(c => c.profit), backgroundColor: '#11845B' },
+                        { label: 'Revenue', data: top15.map(c => c.revenue), backgroundColor: '#11845B' },
                         { label: 'Coût', data: top15.map(c => c.cost), backgroundColor: '#dc2626' }
                     ]
                 },
@@ -663,7 +706,16 @@
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
+                    plugins: { 
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
+                                }
+                            }
+                        }
+                    },
                     scales: { x: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
                 }
             });
@@ -671,20 +723,21 @@
         
         function renderClientsTable() {
             const tbody = document.querySelector('#clientsTable tbody');
-            tbody.innerHTML = clientsData.map(c => `
+            tbody.innerHTML = clientsData.map(c => {
+                const margin = c.revenue ? Math.round((c.revenue - c.cost) / c.revenue * 100) : 0;
+                return `
                 <tr>
                     <td><strong>${c.client_name}</strong></td>
                     <td class="text-right">${formatNumber(c.hours)}h</td>
                     <td class="text-right text-red">${formatCurrency(c.cost)}</td>
-                    <td class="text-right text-blue">${formatCurrency(c.revenue)}</td>
-                    <td class="text-right text-green">${formatCurrency(c.profit)}</td>
+                    <td class="text-right text-green">${formatCurrency(c.revenue)}</td>
                     <td class="text-right">
-                        <span class="badge ${c.margin >= 70 ? 'high' : c.margin >= 50 ? 'medium' : 'low'}">
-                            ${c.margin}%
+                        <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">
+                            ${margin}%
                         </span>
                     </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
         
         function renderMonthlyChart() {
@@ -692,7 +745,7 @@
             const ctx = document.getElementById('monthlyChart').getContext('2d');
             const ctx2 = document.getElementById('hoursChart').getContext('2d');
             
-            const labels = monthlyData.map(m => m.month);
+            const labels = monthlyData.map(m => formatMonthFR(m.month));
             
             if (monthlyChart) monthlyChart.destroy();
             monthlyChart = new Chart(ctx, {
@@ -700,15 +753,27 @@
                 data: {
                     labels,
                     datasets: [
-                        { label: 'Revenue', data: monthlyData.map(m => m.revenue), borderColor: '#0B6CD9', tension: 0.3 },
-                        { label: 'Profit', data: monthlyData.map(m => m.profit), borderColor: '#11845B', tension: 0.3 },
-                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', tension: 0.3 }
+                        { label: 'Revenue', data: monthlyData.map(m => m.revenue), borderColor: '#0B6CD9', backgroundColor: '#0B6CD9', tension: 0.3 },
+                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', backgroundColor: '#dc2626', tension: 0.3 }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { position: 'top' } },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: { 
+                        legend: { position: 'top' },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': £' + context.raw.toLocaleString('en-GB');
+                                }
+                            }
+                        }
+                    },
                     scales: { y: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
                 }
             });
@@ -723,7 +788,16 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } }
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.raw.toLocaleString('en-GB') + ' heures';
+                                }
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -732,7 +806,7 @@
             if (!employeesData || employeesData.length === 0) return;
             const ctx = document.getElementById('teamChart').getContext('2d');
             
-            const colors = ['#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c'];
+            const colors = ['#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c', '#059669', '#7c3aed', '#0284c7', '#b91c1c'];
             
             if (teamChart) teamChart.destroy();
             teamChart = new Chart(ctx, {
@@ -748,12 +822,21 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } }
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.raw.toLocaleString('en-GB') + ' heures';
+                                }
+                            }
+                        }
+                    }
                 }
             });
             
             const select = document.getElementById('employeeSelect');
-            select.innerHTML = '<option value="">Sélectionner un employé...</option>' +
+            select.innerHTML = '<option value="">Choisir un employé...</option>' +
                 employeesData.map(e => `<option value="${e.employee_id}">${e.employee_name}</option>`).join('');
             select.onchange = () => loadEmployeeDetail(select.value);
         }
@@ -773,8 +856,11 @@
         
         async function loadEmployeeDetail(employeeId) {
             const container = document.getElementById('employeeDetail');
+            const deepDive = document.getElementById('employeeDeepDive');
+            
             if (!employeeId) {
                 container.innerHTML = '';
+                deepDive.style.display = 'none';
                 return;
             }
             
@@ -783,24 +869,92 @@
             
             if (!data || data.length === 0) {
                 container.innerHTML = '<p>Aucune donnée pour cette période</p>';
+                deepDive.style.display = 'none';
                 return;
             }
             
+            // Get employee name
+            const employee = employeesData.find(e => e.employee_id === employeeId);
+            const employeeName = employee ? employee.employee_name : employeeId;
+            
+            // Group by month
             const byMonth = {};
             data.forEach(d => {
                 if (!byMonth[d.month]) byMonth[d.month] = [];
                 byMonth[d.month].push(d);
             });
             
+            // Render text list
             container.innerHTML = Object.entries(byMonth).map(([month, items]) => `
                 <div style="margin-bottom: 1rem;">
-                    <strong>${month}</strong>
+                    <strong>${formatMonthFR(month)}</strong>
                     <div style="font-size: 0.85rem; color: #666;">
                         ${items.slice(0, 5).map(i => `${i.client_name}: ${i.hours}h`).join('<br>')}
                         ${items.length > 5 ? '<br>...' : ''}
                     </div>
                 </div>
             `).join('');
+            
+            // Render stacked bar chart
+            deepDive.style.display = 'block';
+            document.getElementById('employeeDeepDiveTitle').textContent = `${employeeName} - Heures par client`;
+            
+            // Prepare data for stacked bar chart
+            const months = Object.keys(byMonth).sort();
+            const allClients = [...new Set(data.map(d => d.client_name))];
+            
+            // Color palette for clients
+            const clientColors = [
+                '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
+                '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c',
+                '#059669', '#7c3aed', '#0284c7', '#b91c1c', '#4f46e5',
+                '#0d9488', '#ca8a04', '#be185d', '#1d4ed8', '#15803d'
+            ];
+            
+            const datasets = allClients.map((client, index) => ({
+                label: client,
+                data: months.map(month => {
+                    const item = byMonth[month].find(d => d.client_name === client);
+                    return item ? item.hours : 0;
+                }),
+                backgroundColor: clientColors[index % clientColors.length]
+            }));
+            
+            const ctx = document.getElementById('employeeTimeChart').getContext('2d');
+            if (employeeTimeChart) employeeTimeChart.destroy();
+            
+            employeeTimeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: months.map(m => formatMonthFR(m)),
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { boxWidth: 12, padding: 8, font: { size: 11 } }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.raw === 0) return null;
+                                    return context.dataset.label + ': ' + context.raw + 'h';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { stacked: true },
+                        y: { 
+                            stacked: true,
+                            ticks: { callback: v => v + 'h' }
+                        }
+                    }
+                }
+            });
         }
         
         async function loadAlerts() {
@@ -808,16 +962,22 @@
             if (!data) return;
             
             const tbody = document.querySelector('#alertsTable tbody');
-            tbody.innerHTML = data.map(a => `
+            tbody.innerHTML = data.map(a => {
+                const margin = a.total_revenue_gbp ? Math.round((a.total_revenue_gbp - a.total_cost_gbp) / a.total_revenue_gbp * 100) : 0;
+                return `
                 <tr>
                     <td><strong>${a.client_name || a.client_id}</strong></td>
                     <td><span class="badge low">${a.alert_type}</span><br><small>${a.alert_message}</small></td>
                     <td class="text-right">${formatNumber(a.total_hours)}h</td>
                     <td class="text-right text-red">${formatCurrency(a.total_cost_gbp)}</td>
                     <td class="text-right">${formatCurrency(a.total_revenue_gbp)}</td>
-                    <td class="text-right ${a.total_profit_gbp < 0 ? 'text-red' : 'text-green'}">${formatCurrency(a.total_profit_gbp)}</td>
+                    <td class="text-right">
+                        <span class="badge ${margin >= 50 ? 'high' : margin >= 0 ? 'medium' : 'low'}">
+                            ${margin}%
+                        </span>
+                    </td>
                 </tr>
-            `).join('');
+            `}).join('');
         }
     </script>
 </body>
