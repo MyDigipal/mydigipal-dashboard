@@ -3,8 +3,9 @@ from flask_cors import CORS
 from google.cloud import bigquery
 from datetime import datetime, timedelta
 import os
+import traceback
 
-# Dashboard API v1.1 - With employees-breakdown endpoint
+# Dashboard API v1.2 - With error handling for debugging
 
 app = Flask(__name__)
 CORS(app)  # Allow frontend to call API
@@ -19,7 +20,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.1"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.2"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -127,35 +128,42 @@ def get_employees():
 @app.route('/api/employees-breakdown')
 def get_employees_breakdown():
     """Get hours by employee broken down by client - for stacked bar chart"""
-    date_from, date_to = get_date_params()
-    
-    params = []
-    date_filter = ""
-    
-    if date_from:
-        date_filter += " AND month >= @date_from"
-        params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
-    if date_to:
-        date_filter += " AND month <= @date_to"
-        params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
-    
-    query = f"""
-    SELECT 
-      employee_id,
-      COALESCE(employee_name, employee_id) as employee_name,
-      client_id,
-      client_name,
-      ROUND(SUM(hours), 0) AS hours
-    FROM `mydigipal.marts.employee_workload`
-    WHERE 1=1 {date_filter}
-    GROUP BY 1, 2, 3, 4
-    HAVING SUM(hours) > 0
-    ORDER BY employee_name, hours DESC
-    """
-    
-    job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
-    rows = client.query(query, job_config=job_config).result()
-    return jsonify([dict(row) for row in rows])
+    try:
+        date_from, date_to = get_date_params()
+        
+        params = []
+        date_filter = ""
+        
+        if date_from:
+            date_filter += " AND month >= @date_from"
+            params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
+        if date_to:
+            date_filter += " AND month <= @date_to"
+            params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
+        
+        query = f"""
+        SELECT 
+          employee_id,
+          COALESCE(employee_name, employee_id) as employee_name,
+          client_id,
+          client_name,
+          ROUND(SUM(hours), 0) AS hours
+        FROM `mydigipal.marts.employee_workload`
+        WHERE 1=1 {date_filter}
+        GROUP BY 1, 2, 3, 4
+        HAVING SUM(hours) > 0
+        ORDER BY employee_name, hours DESC
+        """
+        
+        job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
+        rows = client.query(query, job_config=job_config).result()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "type": type(e).__name__,
+            "traceback": traceback.format_exc()
+        }), 500
 
 @app.route('/api/employee/<employee_id>')
 def get_employee_detail(employee_id):
