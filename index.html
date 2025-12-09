@@ -50,10 +50,12 @@
         .header {
             background: #211F54;
             color: white;
-            padding: 1.5rem 2rem;
+            padding: 1rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
         }
         .header h1 { font-size: 1.5rem; font-weight: 600; }
         .header .subtitle { opacity: 0.7; font-size: 0.9rem; }
@@ -77,6 +79,67 @@
             font-size: 0.85rem;
         }
         .header .logout-btn:hover { background: rgba(255,255,255,0.3); }
+        
+        /* Date Filter */
+        .date-filter-bar {
+            background: white;
+            padding: 0.75rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .date-filter-bar label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #211F54;
+        }
+        .date-preset {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+        .date-preset:hover { background: #f3f4f6; }
+        .date-preset.active { 
+            background: #0B6CD9; 
+            color: white; 
+            border-color: #0B6CD9; 
+        }
+        .date-input {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .date-range-inputs {
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .date-range-inputs.visible { display: flex; }
+        .apply-btn {
+            padding: 0.5rem 1rem;
+            background: #11845B;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .apply-btn:hover { background: #0d6b4a; }
+        .current-period {
+            margin-left: auto;
+            font-size: 0.85rem;
+            color: #666;
+            background: #f3f4f6;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+        }
         
         .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
         
@@ -190,6 +253,7 @@
         @media (max-width: 768px) {
             .kpi-grid { grid-template-columns: repeat(2, 1fr); }
             .chart-row { grid-template-columns: 1fr; }
+            .date-filter-bar { padding: 0.75rem 1rem; }
         }
     </style>
 </head>
@@ -219,6 +283,25 @@
                 <img id="userPhoto" src="" alt="">
                 <button class="logout-btn" onclick="logout()">Déconnexion</button>
             </div>
+        </div>
+        
+        <!-- Date Filter Bar -->
+        <div class="date-filter-bar">
+            <label>📅 Période :</label>
+            <button class="date-preset active" data-preset="all">Tout</button>
+            <button class="date-preset" data-preset="30d">30 jours</button>
+            <button class="date-preset" data-preset="3m">3 mois</button>
+            <button class="date-preset" data-preset="6m">6 mois</button>
+            <button class="date-preset" data-preset="12m">12 mois</button>
+            <button class="date-preset" data-preset="2025">2025</button>
+            <button class="date-preset" data-preset="custom">Personnalisé</button>
+            <div class="date-range-inputs" id="customDateRange">
+                <input type="date" class="date-input" id="dateFrom">
+                <span>→</span>
+                <input type="date" class="date-input" id="dateTo">
+                <button class="apply-btn" onclick="applyCustomDates()">Appliquer</button>
+            </div>
+            <div class="current-period" id="currentPeriod">Toutes les données</div>
         </div>
         
         <div class="container">
@@ -273,7 +356,7 @@
             
             <!-- Monthly Panel -->
             <div class="panel" id="panel-monthly">
-                <h2>Évolution Mensuelle 2025</h2>
+                <h2>Évolution Mensuelle</h2>
                 <div class="chart-container">
                     <canvas id="monthlyChart"></canvas>
                 </div>
@@ -335,6 +418,10 @@
         const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
         const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
         const ALLOWED_EMAILS = ['paul@mydigipal.com'];
+        
+        // ============== DATE FILTER STATE ==============
+        let dateFrom = null;
+        let dateTo = null;
         
         // ============== AUTHENTICATION ==============
         let currentUser = null;
@@ -401,6 +488,92 @@
             );
         };
         
+        // ============== DATE FILTER ==============
+        function formatDateForAPI(date) {
+            return date.toISOString().split('T')[0];
+        }
+        
+        function setDatePreset(preset) {
+            const today = new Date();
+            const customRange = document.getElementById('customDateRange');
+            customRange.classList.remove('visible');
+            
+            switch(preset) {
+                case 'all':
+                    dateFrom = null;
+                    dateTo = null;
+                    document.getElementById('currentPeriod').textContent = 'Toutes les données';
+                    break;
+                case '30d':
+                    dateFrom = new Date(today);
+                    dateFrom.setDate(dateFrom.getDate() - 30);
+                    dateTo = today;
+                    document.getElementById('currentPeriod').textContent = '30 derniers jours';
+                    break;
+                case '3m':
+                    dateFrom = new Date(today);
+                    dateFrom.setMonth(dateFrom.getMonth() - 3);
+                    dateTo = today;
+                    document.getElementById('currentPeriod').textContent = '3 derniers mois';
+                    break;
+                case '6m':
+                    dateFrom = new Date(today);
+                    dateFrom.setMonth(dateFrom.getMonth() - 6);
+                    dateTo = today;
+                    document.getElementById('currentPeriod').textContent = '6 derniers mois';
+                    break;
+                case '12m':
+                    dateFrom = new Date(today);
+                    dateFrom.setMonth(dateFrom.getMonth() - 12);
+                    dateTo = today;
+                    document.getElementById('currentPeriod').textContent = '12 derniers mois';
+                    break;
+                case '2025':
+                    dateFrom = new Date('2025-01-01');
+                    dateTo = new Date('2025-12-31');
+                    document.getElementById('currentPeriod').textContent = 'Année 2025';
+                    break;
+                case 'custom':
+                    customRange.classList.add('visible');
+                    return; // Don't reload yet
+            }
+            
+            // Update active button
+            document.querySelectorAll('.date-preset').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.preset === preset);
+            });
+            
+            // Reload data
+            init();
+        }
+        
+        function applyCustomDates() {
+            const fromInput = document.getElementById('dateFrom').value;
+            const toInput = document.getElementById('dateTo').value;
+            
+            if (!fromInput || !toInput) {
+                alert('Veuillez sélectionner les deux dates');
+                return;
+            }
+            
+            dateFrom = new Date(fromInput);
+            dateTo = new Date(toInput);
+            
+            document.getElementById('currentPeriod').textContent = `${fromInput} → ${toInput}`;
+            
+            // Update active state
+            document.querySelectorAll('.date-preset').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.preset === 'custom');
+            });
+            
+            init();
+        }
+        
+        // Bind preset buttons
+        document.querySelectorAll('.date-preset').forEach(btn => {
+            btn.addEventListener('click', () => setDatePreset(btn.dataset.preset));
+        });
+        
         // ============== DASHBOARD ==============
         let clientsChart, monthlyChart, hoursChart, teamChart;
         let clientsData = [];
@@ -419,9 +592,17 @@
             });
         });
         
+        function getDateParams() {
+            let params = '';
+            if (dateFrom) params += `?date_from=${formatDateForAPI(dateFrom)}`;
+            if (dateTo) params += `${params ? '&' : '?'}date_to=${formatDateForAPI(dateTo)}`;
+            return params;
+        }
+        
         async function fetchData(endpoint) {
             try {
-                const res = await fetch(API_URL + endpoint);
+                const params = getDateParams();
+                const res = await fetch(API_URL + endpoint + params);
                 if (!res.ok) throw new Error('API Error');
                 return await res.json();
             } catch (e) {
@@ -431,6 +612,12 @@
         }
         
         async function init() {
+            // Show loading state
+            document.getElementById('kpiProfit').textContent = '...';
+            document.getElementById('kpiRevenue').textContent = '...';
+            document.getElementById('kpiMargin').textContent = '...';
+            document.getElementById('kpiHours').textContent = '...';
+            
             [clientsData, monthlyData, employeesData] = await Promise.all([
                 fetchData('/api/clients'),
                 fetchData('/api/monthly'),
@@ -447,7 +634,7 @@
             
             document.getElementById('kpiProfit').textContent = formatCurrency(totals.profit);
             document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
-            document.getElementById('kpiMargin').textContent = Math.round(totals.profit / totals.revenue * 100) + '%';
+            document.getElementById('kpiMargin').textContent = totals.revenue ? Math.round(totals.profit / totals.revenue * 100) + '%' : '0%';
             document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
             
             renderClientsChart();
@@ -501,7 +688,7 @@
         }
         
         function renderMonthlyChart() {
-            if (!monthlyData) return;
+            if (!monthlyData || monthlyData.length === 0) return;
             const ctx = document.getElementById('monthlyChart').getContext('2d');
             const ctx2 = document.getElementById('hoursChart').getContext('2d');
             
@@ -542,7 +729,7 @@
         }
         
         function renderTeamChart() {
-            if (!employeesData) return;
+            if (!employeesData || employeesData.length === 0) return;
             const ctx = document.getElementById('teamChart').getContext('2d');
             
             const colors = ['#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', '#dc2626', '#0891b2', '#65a30d', '#c026d3', '#ea580c'];
@@ -595,7 +782,7 @@
             const data = await fetchData('/api/employee/' + employeeId);
             
             if (!data || data.length === 0) {
-                container.innerHTML = '<p>Aucune donnée</p>';
+                container.innerHTML = '<p>Aucune donnée pour cette période</p>';
                 return;
             }
             
