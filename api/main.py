@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.5 - Added budget progress endpoint for Planning tab
+# Dashboard API v1.6 - Migrated to company/reporting datasets
 
 app = Flask(__name__)
 CORS(app)
@@ -19,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.5"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.6"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -44,7 +44,7 @@ def get_clients():
       ROUND(SUM(revenue_gbp), 0) AS revenue,
       ROUND(SUM(profit_gbp), 0) AS profit,
       ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
-    FROM `mydigipal.marts.client_profitability`
+    FROM `mydigipal.reporting.vw_profitability`
     WHERE client_id != 'mydigipal' {date_filter}
     GROUP BY 1, 2
     HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
@@ -75,8 +75,8 @@ def get_clients_with_hours():
       t.client_id,
       COALESCE(c.client_name, t.client_id) as client_name,
       ROUND(SUM(t.hours), 1) AS total_hours
-    FROM `mydigipal.staging.fct_timesheets` t
-    LEFT JOIN `mydigipal.staging.dim_clients` c ON t.client_id = c.client_id
+    FROM `mydigipal.company.timesheets_fct` t
+    LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
     WHERE t.hours > 0 {date_filter}
     GROUP BY 1, 2
     HAVING SUM(t.hours) > 0
@@ -110,8 +110,8 @@ def get_client_timeline(client_id):
           t.employee_id,
           COALESCE(e.employee_name, t.employee_id) as employee_name,
           ROUND(SUM(t.hours), 2) AS hours
-        FROM `mydigipal.staging.fct_timesheets` t
-        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        FROM `mydigipal.company.timesheets_fct` t
+        LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
         WHERE t.client_id = @client_id AND t.hours > 0 {date_filter}
         GROUP BY 1, 2, 3
         ORDER BY 1, 3
@@ -127,8 +127,8 @@ def get_client_timeline(client_id):
           t.employee_id,
           COALESCE(e.employee_name, t.employee_id) as employee_name,
           ROUND(SUM(t.hours), 1) AS total_hours
-        FROM `mydigipal.staging.fct_timesheets` t
-        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        FROM `mydigipal.company.timesheets_fct` t
+        LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
         WHERE t.client_id = @client_id AND t.hours > 0 {date_filter}
         GROUP BY 1, 2
         ORDER BY 3 DESC
@@ -141,7 +141,7 @@ def get_client_timeline(client_id):
         query_client = f"""
         SELECT 
           COALESCE(c.client_name, @client_id) as client_name
-        FROM `mydigipal.staging.dim_clients` c
+        FROM `mydigipal.company.clients_dim` c
         WHERE c.client_id = @client_id
         """
         client_rows = list(client.query(query_client, job_config=job_config).result())
@@ -208,15 +208,15 @@ def get_budget_progress():
             b.budgeted_hours,
             b.budget_type,
             b.notes
-          FROM `mydigipal.staging.client_monthly_budgets` b
-          LEFT JOIN `mydigipal.staging.dim_clients` c ON b.client_id = c.client_id
+          FROM `mydigipal.company.clients_budgets` b
+          LEFT JOIN `mydigipal.company.clients_dim` c ON b.client_id = c.client_id
           WHERE b.month = @month
         ),
         actuals AS (
           SELECT 
             t.client_id,
             ROUND(SUM(t.hours), 1) as actual_hours
-          FROM `mydigipal.staging.fct_timesheets` t
+          FROM `mydigipal.company.timesheets_fct` t
           WHERE t.date >= @month_start AND t.date < @month_end
           GROUP BY 1
         ),
@@ -226,8 +226,8 @@ def get_budget_progress():
             t.employee_id,
             COALESCE(e.employee_name, t.employee_id) as employee_name,
             ROUND(SUM(t.hours), 1) as hours
-          FROM `mydigipal.staging.fct_timesheets` t
-          LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+          FROM `mydigipal.company.timesheets_fct` t
+          LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
           WHERE t.date >= @month_start AND t.date < @month_end
           GROUP BY 1, 2, 3
         )
@@ -284,8 +284,8 @@ def get_budget_progress():
           t.employee_id,
           COALESCE(e.employee_name, t.employee_id) as employee_name,
           ROUND(SUM(t.hours), 1) as hours
-        FROM `mydigipal.staging.fct_timesheets` t
-        LEFT JOIN `mydigipal.staging.dim_employees` e ON t.employee_id = e.employee_id
+        FROM `mydigipal.company.timesheets_fct` t
+        LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
         WHERE t.date >= @month_start AND t.date < @month_end
         GROUP BY 1, 2, 3
         HAVING SUM(t.hours) > 0
@@ -330,7 +330,7 @@ def get_budget_months():
     try:
         query = """
         SELECT DISTINCT month
-        FROM `mydigipal.staging.client_monthly_budgets`
+        FROM `mydigipal.company.clients_budgets`
         ORDER BY month DESC
         """
         rows = client.query(query).result()
@@ -363,7 +363,7 @@ def get_monthly():
       ROUND(SUM(cost_gbp), 0) AS cost,
       ROUND(SUM(revenue_gbp), 0) AS revenue,
       ROUND(SUM(profit_gbp), 0) AS profit
-    FROM `mydigipal.marts.client_profitability`
+    FROM `mydigipal.reporting.vw_profitability`
     WHERE client_id != 'mydigipal' {date_filter}
     GROUP BY 1
     ORDER BY 1
@@ -394,7 +394,7 @@ def get_employees():
       ROUND(SUM(hours), 0) AS total_hours,
       ROUND(SUM(cost_gbp), 0) AS total_cost,
       COUNT(DISTINCT client_id) AS nb_clients
-    FROM `mydigipal.marts.employee_workload`
+    FROM `mydigipal.reporting.vw_employee_workload`
     WHERE 1=1 {date_filter}
     GROUP BY 1, 2
     ORDER BY 3 DESC
@@ -429,7 +429,7 @@ def get_employees_breakdown():
           client_id,
           client_name,
           ROUND(SUM(hours), 0) AS total_hours
-        FROM `mydigipal.marts.employee_workload`
+        FROM `mydigipal.reporting.vw_employee_workload`
         WHERE 1=1 {date_filter}
         GROUP BY 1, 2, 3, 4
         HAVING SUM(hours) > 0
@@ -476,7 +476,7 @@ def get_employee_detail(employee_id):
       client_name,
       hours,
       cost_gbp
-    FROM `mydigipal.marts.employee_workload`
+    FROM `mydigipal.reporting.vw_employee_workload`
     WHERE employee_id = @employee_id {date_filter}
     ORDER BY 1 DESC, 3 DESC
     """
@@ -509,7 +509,7 @@ def get_client_detail(client_id):
       revenue_gbp as revenue,
       profit_gbp as profit,
       margin_pct as margin
-    FROM `mydigipal.marts.client_profitability`
+    FROM `mydigipal.reporting.vw_profitability`
     WHERE client_id = @client_id {date_filter}
     ORDER BY 1 DESC
     LIMIT 12
@@ -521,8 +521,8 @@ def get_client_detail(client_id):
       e.employee_name,
       ROUND(SUM(w.hours), 0) as total_hours,
       ROUND(SUM(w.cost_gbp), 0) as cost
-    FROM `mydigipal.marts.employee_workload` w
-    LEFT JOIN `mydigipal.staging.dim_employees` e ON w.employee_id = e.employee_id
+    FROM `mydigipal.reporting.vw_employee_workload` w
+    LEFT JOIN `mydigipal.company.employees_dim` e ON w.employee_id = e.employee_id
     WHERE w.client_id = @client_id {date_filter}
     GROUP BY 1
     ORDER BY 2 DESC
@@ -540,7 +540,7 @@ def get_client_detail(client_id):
 def get_alerts():
     query = """
     SELECT *
-    FROM `mydigipal.marts.client_profitability_alerts`
+    FROM `mydigipal.reporting.vw_profitability_alerts`
     WHERE alert_type IN ('NO_REVENUE', 'LOSS', 'LOW_MARGIN')
     ORDER BY total_profit_gbp ASC
     LIMIT 20
@@ -554,7 +554,7 @@ def get_date_range():
     SELECT 
       FORMAT_DATE('%Y-%m-%d', MIN(month)) as min_date,
       FORMAT_DATE('%Y-%m-%d', MAX(month)) as max_date
-    FROM `mydigipal.marts.client_profitability`
+    FROM `mydigipal.reporting.vw_profitability`
     """
     rows = list(client.query(query).result())
     if rows:
