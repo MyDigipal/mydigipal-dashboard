@@ -713,6 +713,14 @@
             
             <!-- Clients Panel (Admin only) -->
             <div class="panel" id="panel-clients">
+                <!-- Toggle to exclude Paul's hours -->
+                <label class="filter-toggle" id="filterTogglePaul" onclick="toggleExcludePaul()">
+                    <input type="checkbox" id="excludePaul">
+                    <span class="filter-toggle-icon">👤</span>
+                    <span class="filter-toggle-label">Exclure heures de Paul</span>
+                    <span class="filter-toggle-switch"></span>
+                </label>
+                
                 <h2>Rentabilité par Client</h2>
                 <div class="chart-container">
                     <canvas id="clientsChart"></canvas>
@@ -880,7 +888,6 @@
             'alexandre@mydigipal.com',
             'alizee@mydigipal.com',
             'heather@mydigipal.com'
-            // Add more team emails as needed
         ];
         
         // Internal client to exclude from hours breakdown charts
@@ -962,17 +969,14 @@
         }
         
         function applyAccessControl() {
-            // Hide admin-only tabs for non-admins
             document.querySelectorAll('.tab.admin-only').forEach(tab => {
                 tab.classList.toggle('hidden', !isAdmin);
             });
             
-            // Hide KPIs for non-admins
             if (!isAdmin) {
                 document.getElementById('kpiGrid').classList.add('hidden');
             }
             
-            // Set default tab based on role
             const defaultTab = isAdmin ? 'clients' : 'hours';
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -1017,7 +1021,6 @@
             return false;
         }
         
-        // Initialize Google Sign-In
         window.onload = function() {
             if (checkExistingSession()) return;
             
@@ -1128,7 +1131,15 @@
             btn.addEventListener('click', () => setDatePreset(btn.dataset.preset));
         });
         
-        // ============== TOGGLE FILTER ==============
+        // ============== TOGGLE FILTERS ==============
+        function toggleExcludePaul() {
+            const checkbox = document.getElementById('excludePaul');
+            const toggle = document.getElementById('filterTogglePaul');
+            checkbox.checked = !checkbox.checked;
+            toggle.classList.toggle('active', checkbox.checked);
+            loadClientsData();
+        }
+        
         function toggleInternalFilter() {
             const checkbox = document.getElementById('excludeInternal');
             const toggle = document.getElementById('filterToggle');
@@ -1150,10 +1161,8 @@
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
         
-        // Tab switching with KPI visibility control
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                // Check if this is an admin-only tab and user is not admin
                 if (tab.classList.contains('admin-only') && !isAdmin) return;
                 
                 document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -1161,7 +1170,6 @@
                 tab.classList.add('active');
                 document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
                 
-                // Show KPIs ONLY on Rentabilité and Evolution tabs (and only for admin)
                 const kpiGrid = document.getElementById('kpiGrid');
                 if (isAdmin && (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly')) {
                     kpiGrid.classList.remove('hidden');
@@ -1169,11 +1177,9 @@
                     kpiGrid.classList.add('hidden');
                 }
                 
-                // Hide date filter on Planning tab (it has its own month selector)
                 const dateFilterBar = document.getElementById('dateFilterBar');
                 dateFilterBar.style.display = tab.dataset.tab === 'planning' ? 'none' : 'flex';
                 
-                // Load specific tab data
                 if (tab.dataset.tab === 'clientdetail') {
                     loadClientsWithHours();
                 }
@@ -1202,6 +1208,37 @@
             }
         }
         
+        async function loadClientsData() {
+            const excludePaul = document.getElementById('excludePaul').checked;
+            let params = getDateParams();
+            if (excludePaul) {
+                params += (params ? '&' : '?') + 'exclude_employee=paul';
+            }
+            try {
+                const res = await fetch(API_URL + '/api/clients' + params);
+                if (!res.ok) throw new Error('API Error');
+                clientsData = await res.json();
+                
+                const totals = clientsData.reduce((acc, c) => ({
+                    revenue: acc.revenue + (c.revenue || 0),
+                    cost: acc.cost + (c.cost || 0),
+                    hours: acc.hours + (c.hours || 0)
+                }), { revenue: 0, cost: 0, hours: 0 });
+                const totalProfit = totals.revenue - totals.cost;
+                
+                if (isAdmin) {
+                    document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
+                    document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
+                    document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
+                    document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
+                    renderClientsChart();
+                    renderClientsTable();
+                }
+            } catch (e) {
+                console.error('Error loading clients:', e);
+            }
+        }
+        
         async function init() {
             if (isAdmin) {
                 document.getElementById('kpiRevenue').textContent = '...';
@@ -1210,7 +1247,6 @@
                 document.getElementById('kpiHours').textContent = '...';
             }
             
-            // Reset client detail when period changes
             document.getElementById('clientSelect').value = '';
             document.getElementById('clientDetailContent').style.display = 'none';
             document.getElementById('clientDetailEmpty').style.display = 'block';
@@ -1245,8 +1281,6 @@
             }
             
             renderHoursBreakdownCharts();
-            
-            // Pre-load clients with hours for the client detail tab
             loadClientsWithHours();
         }
         
@@ -1257,12 +1291,8 @@
                 const months = await res.json();
                 
                 const select = document.getElementById('planningMonth');
-                
-                // Add current month as default option
                 const now = new Date();
                 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                
-                // Combine months from API with current month
                 const allMonths = [...new Set([currentMonth, ...months])].sort().reverse();
                 
                 select.innerHTML = allMonths.map(m => 
@@ -1295,7 +1325,6 @@
                 document.getElementById('planningEmpty').style.display = 'none';
                 document.getElementById('planningSummary').style.display = 'grid';
                 
-                // Update summary KPIs
                 document.getElementById('planningMonthProgress').textContent = `${data.month_progress_pct}%`;
                 document.getElementById('planningClientCount').textContent = data.clients.length;
                 document.getElementById('planningWarningCount').textContent = 
@@ -1303,7 +1332,6 @@
                 document.getElementById('planningExceededCount').textContent = 
                     data.clients.filter(c => c.status === 'exceeded').length;
                 
-                // Render client cards with staggered animation
                 cardsContainer.innerHTML = data.clients.map((client, index) => {
                     const progressWidth = Math.min(client.progress_pct, 100);
                     const pacePosition = Math.min(data.month_progress_pct, 100);
@@ -1362,7 +1390,6 @@
             const select = document.getElementById('clientSelect');
             const currentValue = select.value;
             
-            // Keep current selection if still valid
             select.innerHTML = '<option value="">-- Choisir un client --</option>' + 
                 clientsWithHours.map(c => 
                     `<option value="${c.client_id}" ${c.client_id === currentValue ? 'selected' : ''}>
@@ -1387,7 +1414,6 @@
             const data = await fetchData(`/api/client-timeline/${clientId}`);
             if (!data) return;
             
-            // Calculate total hours
             const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
             document.getElementById('clientTotalHours').textContent = `Total: ${totalHours.toFixed(1)}h`;
             
