@@ -12,6 +12,23 @@ CORS(app)
 
 client = bigquery.Client(project='mydigipal')
 
+# PERF: Add cache headers to reduce redundant API calls
+@app.after_request
+def add_cache_headers(response):
+    """Add cache control headers to API responses"""
+    # Don't cache error responses
+    if response.status_code >= 400:
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    # Cache static data endpoints longer (budget months don't change often)
+    if request.path in ['/api/budget-months', '/api/date-range']:
+        response.headers['Cache-Control'] = 'public, max-age=3600'  # 1 hour
+    # Cache data endpoints for shorter periods (data updates during the day)
+    elif request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'public, max-age=300'  # 5 minutes
+    return response
+
 def get_date_params():
     date_from = request.args.get('date_from')
     date_to = request.args.get('date_to')
@@ -200,9 +217,10 @@ def get_budget_progress():
             bigquery.ScalarQueryParameter("month_end", "DATE", month_end)
         ]
         
+        # PERF: Combined query - include employee breakdown using ARRAY_AGG (eliminates second DB round-trip)
         query = """
         WITH budgets AS (
-          SELECT 
+          SELECT
             b.client_id,
             COALESCE(c.client_name, b.client_id) as client_name,
             b.budgeted_hours,
@@ -213,7 +231,7 @@ def get_budget_progress():
           WHERE b.month = @month
         ),
         actuals AS (
-          SELECT 
+          SELECT
             t.client_id,
             ROUND(SUM(t.hours), 1) as actual_hours
           FROM `mydigipal.company.timesheets_fct` t
@@ -221,7 +239,7 @@ def get_budget_progress():
           GROUP BY 1
         ),
         employee_breakdown AS (
-          SELECT 
+          SELECT
             t.client_id,
             t.employee_id,
             COALESCE(e.employee_name, t.employee_id) as employee_name,
@@ -230,84 +248,66 @@ def get_budget_progress():
           LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
           WHERE t.date >= @month_start AND t.date < @month_end
           GROUP BY 1, 2, 3
+          HAVING SUM(t.hours) > 0
+        ),
+        employee_arrays AS (
+          SELECT
+            client_id,
+            ARRAY_AGG(STRUCT(employee_id, employee_name, hours) ORDER BY hours DESC) as employees
+          FROM employee_breakdown
+          GROUP BY 1
         )
-        SELECT 
+        SELECT
           b.client_id,
           b.client_name,
           b.budgeted_hours,
           b.budget_type,
           b.notes,
-          COALESCE(a.actual_hours, 0) as actual_hours
+          COALESCE(a.actual_hours, 0) as actual_hours,
+          COALESCE(ea.employees, []) as employees
         FROM budgets b
         LEFT JOIN actuals a ON b.client_id = a.client_id
+        LEFT JOIN employee_arrays ea ON b.client_id = ea.client_id
         ORDER BY b.budgeted_hours DESC
         """
-        
+
         job_config = bigquery.QueryJobConfig(query_parameters=params)
         rows = client.query(query, job_config=job_config).result()
-        
+
         result = []
         for row in rows:
             r = dict(row)
             budgeted = r['budgeted_hours']
             actual = r['actual_hours']
-            
+
             # Calculate remaining hours
             r['remaining_hours'] = round(budgeted - actual, 1)
-            
+
             # Calculate expected hours at this point in month
             expected_at_pace = round(budgeted * month_progress, 1)
             r['expected_hours'] = expected_at_pace
-            
+
             # Calculate pace status
             # If actual > expected, we're ahead (bad - spending too fast)
             # If actual < expected, we're behind (good - on track or under)
             pace_diff = actual - expected_at_pace
             r['pace_diff'] = round(pace_diff, 1)
-            
+
             if actual >= budgeted:
                 r['status'] = 'exceeded'
             elif pace_diff > budgeted * 0.1:  # More than 10% ahead of pace
                 r['status'] = 'warning'
             else:
                 r['status'] = 'ok'
-            
+
             # Progress percentage
             r['progress_pct'] = round((actual / budgeted * 100) if budgeted > 0 else 0, 0)
-            
+
+            # PERF: Employees array now comes directly from query (already structured)
+            # Convert BigQuery struct array to list of dicts
+            r['employees'] = [dict(emp) for emp in (r.get('employees') or [])]
+
             result.append(r)
-        
-        # Get employee breakdown for each client
-        query_breakdown = """
-        SELECT 
-          t.client_id,
-          t.employee_id,
-          COALESCE(e.employee_name, t.employee_id) as employee_name,
-          ROUND(SUM(t.hours), 1) as hours
-        FROM `mydigipal.company.timesheets_fct` t
-        LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
-        WHERE t.date >= @month_start AND t.date < @month_end
-        GROUP BY 1, 2, 3
-        HAVING SUM(t.hours) > 0
-        ORDER BY 1, 4 DESC
-        """
-        breakdown_rows = client.query(query_breakdown, job_config=job_config).result()
-        
-        # Group by client
-        breakdown_by_client = {}
-        for row in breakdown_rows:
-            cid = row['client_id']
-            if cid not in breakdown_by_client:
-                breakdown_by_client[cid] = []
-            breakdown_by_client[cid].append({
-                'employee_id': row['employee_id'],
-                'employee_name': row['employee_name'],
-                'hours': row['hours']
-            })
-        
-        # Add breakdown to each client
-        for r in result:
-            r['employees'] = breakdown_by_client.get(r['client_id'], [])
         
         return jsonify({
             "month": month,

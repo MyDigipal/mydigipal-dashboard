@@ -1146,33 +1146,45 @@
         let employeesData = [];
         let breakdownData = [];
         let clientsWithHours = [];
-        
+
         const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
         const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
-        
-        // Tab switching with KPI visibility control
-        document.querySelectorAll('.tab').forEach(tab => {
+
+        // PERF: Cache DOM elements once at initialization (avoid querySelectorAll on every click)
+        const cachedElements = {
+            tabs: document.querySelectorAll('.tab'),
+            panels: document.querySelectorAll('.panel'),
+            kpiGrid: document.getElementById('kpiGrid'),
+            dateFilterBar: document.getElementById('dateFilterBar'),
+            panelMap: {}  // Cache panel lookups by tab name
+        };
+        // Pre-cache panel lookups
+        cachedElements.tabs.forEach(tab => {
+            cachedElements.panelMap[tab.dataset.tab] = document.getElementById('panel-' + tab.dataset.tab);
+        });
+
+        // Tab switching with KPI visibility control (using cached elements)
+        cachedElements.tabs.forEach(tab => {
             tab.addEventListener('click', () => {
                 // Check if this is an admin-only tab and user is not admin
                 if (tab.classList.contains('admin-only') && !isAdmin) return;
-                
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+
+                // PERF: Use cached elements instead of querySelectorAll
+                cachedElements.tabs.forEach(t => t.classList.remove('active'));
+                cachedElements.panels.forEach(p => p.classList.remove('active'));
                 tab.classList.add('active');
-                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-                
+                cachedElements.panelMap[tab.dataset.tab].classList.add('active');
+
                 // Show KPIs ONLY on Rentabilité and Evolution tabs (and only for admin)
-                const kpiGrid = document.getElementById('kpiGrid');
                 if (isAdmin && (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly')) {
-                    kpiGrid.classList.remove('hidden');
+                    cachedElements.kpiGrid.classList.remove('hidden');
                 } else {
-                    kpiGrid.classList.add('hidden');
+                    cachedElements.kpiGrid.classList.add('hidden');
                 }
-                
+
                 // Hide date filter on Planning tab (it has its own month selector)
-                const dateFilterBar = document.getElementById('dateFilterBar');
-                dateFilterBar.style.display = tab.dataset.tab === 'planning' ? 'none' : 'flex';
-                
+                cachedElements.dateFilterBar.style.display = tab.dataset.tab === 'planning' ? 'none' : 'flex';
+
                 // Load specific tab data
                 if (tab.dataset.tab === 'clientdetail') {
                     loadClientsWithHours();
@@ -1398,22 +1410,28 @@
         
         function renderClientTimelineChart(data) {
             const ctx = document.getElementById('clientTimelineChart').getContext('2d');
-            
-            const dates = [...new Set(data.daily.map(d => d.date))].sort();
-            const employees = [...new Set(data.daily.map(d => d.employee_name))];
-            
-            const datasets = employees.map((empName, idx) => {
-                const empData = dates.map(date => {
-                    const entry = data.daily.find(d => d.date === date && d.employee_name === empName);
-                    return entry ? entry.hours : 0;
-                });
-                
-                return {
-                    label: empName,
-                    data: empData,
-                    backgroundColor: EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
-                };
+
+            // PERF: Single pass to extract unique dates/employees and build lookup map
+            const dateSet = new Set();
+            const employeeSet = new Set();
+            const dailyMap = {};  // O(1) lookup: dailyMap[date][employee] = hours
+
+            data.daily.forEach(d => {
+                dateSet.add(d.date);
+                employeeSet.add(d.employee_name);
+                if (!dailyMap[d.date]) dailyMap[d.date] = {};
+                dailyMap[d.date][d.employee_name] = d.hours;
             });
+
+            const dates = Array.from(dateSet).sort();
+            const employees = Array.from(employeeSet);
+
+            // PERF: O(n*m) with O(1) lookups instead of O(n*m*k) with find()
+            const datasets = employees.map((empName, idx) => ({
+                label: empName,
+                data: dates.map(date => dailyMap[date]?.[empName] || 0),
+                backgroundColor: EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
+            }));
             
             if (clientTimelineChart) clientTimelineChart.destroy();
             clientTimelineChart = new Chart(ctx, {
@@ -1609,31 +1627,45 @@
         
         function renderHoursBreakdownCharts() {
             if (!breakdownData || breakdownData.length === 0) return;
-            
+
             const excludeInternal = document.getElementById('excludeInternal').checked;
-            const filteredData = excludeInternal 
+            const filteredData = excludeInternal
                 ? breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT)
                 : breakdownData;
-            
-            // Chart 1: Hours by Employee
-            const employeeMap = {};
+
+            // PERF: Single pass aggregation - build both maps simultaneously
+            const employeeMap = {};  // employee -> { total, clients: { client -> hours } }
+            const clientMap = {};    // client -> { total, employees: { employee -> hours } }
+
             filteredData.forEach(row => {
-                if (!employeeMap[row.employee_name]) employeeMap[row.employee_name] = { total: 0, clients: {} };
-                employeeMap[row.employee_name].clients[row.client_name] = row.hours;
-                employeeMap[row.employee_name].total += row.hours;
+                const { employee_name, client_name, hours } = row;
+
+                // Build employee map
+                if (!employeeMap[employee_name]) employeeMap[employee_name] = { total: 0, clients: {} };
+                employeeMap[employee_name].clients[client_name] = hours;
+                employeeMap[employee_name].total += hours;
+
+                // Build client map (simultaneously - no second pass needed)
+                if (!clientMap[client_name]) clientMap[client_name] = { total: 0, employees: {} };
+                clientMap[client_name].employees[employee_name] = hours;
+                clientMap[client_name].total += hours;
             });
-            
+
+            // Sort once, reuse for both charts
             const sortedEmployees = Object.entries(employeeMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
-            const clientTotals = {};
-            filteredData.forEach(row => { clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours; });
-            const sortedClients = Object.entries(clientTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
-            
+            const sortedClients = Object.entries(clientMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
+
+            // PERF: Pre-compute totals for chart labels (instead of reduce in formatter)
+            const employeeTotals = sortedEmployees.map(emp => Math.round(employeeMap[emp].total));
+            const clientTotals = sortedClients.map(client => Math.round(clientMap[client].total));
+
+            // Chart 1: Hours by Employee (stacked by client)
             const datasetsForEmployeeChart = sortedClients.map((clientName, idx) => ({
                 label: clientName,
                 data: sortedEmployees.map(empName => employeeMap[empName].clients[clientName] || 0),
                 backgroundColor: CLIENT_COLORS[idx % CLIENT_COLORS.length]
             }));
-            
+
             const ctx1 = document.getElementById('hoursByEmployeeChart').getContext('2d');
             if (hoursByEmployeeChart) hoursByEmployeeChart.destroy();
             hoursByEmployeeChart = new Chart(ctx1, {
@@ -1651,43 +1683,32 @@
                         datalabels: {
                             display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
                             anchor: 'end', align: 'end', offset: 4,
-                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
+                            // PERF: Use pre-computed totals instead of reduce on every label
+                            formatter: (val, ctx) => employeeTotals[ctx.dataIndex] + 'h',
                             font: { weight: 'bold', size: 11 }, color: '#211F54'
                         }
                     },
                     scales: { x: { stacked: true, ticks: { callback: v => v + 'h' } }, y: { stacked: true } }
                 }
             });
-            
-            // Chart 2: Hours by Client
-            const clientMap = {};
-            filteredData.forEach(row => {
-                if (!clientMap[row.client_name]) clientMap[row.client_name] = { total: 0, employees: {} };
-                clientMap[row.client_name].employees[row.employee_name] = row.hours;
-                clientMap[row.client_name].total += row.hours;
-            });
-            
-            const sortedClientsForChart2 = Object.entries(clientMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
-            const employeeTotals = {};
-            filteredData.forEach(row => { employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours; });
-            const sortedEmployeesForLegend = Object.entries(employeeTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
-            
+
+            // Chart 2: Hours by Client (stacked by employee)
             const employeeColorMap = {};
-            sortedEmployeesForLegend.forEach((empName, idx) => {
+            sortedEmployees.forEach((empName, idx) => {
                 employeeColorMap[empName] = EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
             });
-            
-            const datasetsForClientChart = sortedEmployeesForLegend.map(empName => ({
+
+            const datasetsForClientChart = sortedEmployees.map(empName => ({
                 label: empName,
-                data: sortedClientsForChart2.map(clientName => clientMap[clientName].employees[empName] || 0),
+                data: sortedClients.map(clientName => clientMap[clientName].employees[empName] || 0),
                 backgroundColor: employeeColorMap[empName]
             }));
-            
+
             const ctx2 = document.getElementById('hoursByClientChart').getContext('2d');
             if (hoursByClientChart) hoursByClientChart.destroy();
             hoursByClientChart = new Chart(ctx2, {
                 type: 'bar',
-                data: { labels: sortedClientsForChart2, datasets: datasetsForClientChart },
+                data: { labels: sortedClients, datasets: datasetsForClientChart },
                 plugins: [ChartDataLabels],
                 options: {
                     indexAxis: 'y',
@@ -1700,7 +1721,8 @@
                         datalabels: {
                             display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
                             anchor: 'end', align: 'end', offset: 4,
-                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
+                            // PERF: Use pre-computed totals instead of reduce on every label
+                            formatter: (val, ctx) => clientTotals[ctx.dataIndex] + 'h',
                             font: { weight: 'bold', size: 11 }, color: '#211F54'
                         }
                     },
