@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.6 - Migrated to company/reporting datasets
+# Dashboard API v1.7 - Include MyDigipal in profitability views
 
 app = Flask(__name__)
 CORS(app)
@@ -19,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.6"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.7"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -45,7 +45,7 @@ def get_clients():
       ROUND(SUM(profit_gbp), 0) AS profit,
       ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
     FROM `mydigipal.reporting.vw_profitability`
-    WHERE client_id != 'mydigipal' {date_filter}
+    WHERE 1=1 {date_filter}
     GROUP BY 1, 2
     HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
     ORDER BY 6 DESC
@@ -364,7 +364,7 @@ def get_monthly():
       ROUND(SUM(revenue_gbp), 0) AS revenue,
       ROUND(SUM(profit_gbp), 0) AS profit
     FROM `mydigipal.reporting.vw_profitability`
-    WHERE client_id != 'mydigipal' {date_filter}
+    WHERE 1=1 {date_filter}
     GROUP BY 1
     ORDER BY 1
     """
