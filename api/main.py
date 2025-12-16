@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.7 - Include MyDigipal in profitability views
+# Dashboard API v1.8 - Add exclude_employee filter for profitability
 
 app = Flask(__name__)
 CORS(app)
@@ -19,14 +19,16 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.7"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.8"})
 
 @app.route('/api/clients')
 def get_clients():
     date_from, date_to = get_date_params()
+    exclude_employee = request.args.get('exclude_employee')
     
     params = []
     date_filter = ""
+    employee_filter = ""
     
     if date_from:
         date_filter += " AND month >= @date_from"
@@ -35,21 +37,62 @@ def get_clients():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    query = f"""
-    SELECT 
-      client_id,
-      COALESCE(client_name, client_id) as client_name,
-      ROUND(SUM(hours_worked), 0) AS hours,
-      ROUND(SUM(cost_gbp), 0) AS cost,
-      ROUND(SUM(revenue_gbp), 0) AS revenue,
-      ROUND(SUM(profit_gbp), 0) AS profit,
-      ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
-    FROM `mydigipal.reporting.vw_profitability`
-    WHERE 1=1 {date_filter}
-    GROUP BY 1, 2
-    HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
-    ORDER BY 6 DESC
-    """
+    if exclude_employee:
+        employee_filter = " AND employee_id != @exclude_employee"
+        params.append(bigquery.ScalarQueryParameter("exclude_employee", "STRING", exclude_employee))
+        
+        # Custom query that recalculates costs without the excluded employee
+        query = f"""
+        WITH filtered_timesheets AS (
+          SELECT 
+            DATE_TRUNC(date, MONTH) as month,
+            client_id,
+            SUM(hours) as hours,
+            SUM(cost_gbp) as cost_gbp
+          FROM `mydigipal.company.timesheets_with_cost`
+          WHERE 1=1 {employee_filter}
+          GROUP BY 1, 2
+        ),
+        invoices AS (
+          SELECT 
+            month,
+            client_id,
+            SUM(real_revenue_gbp) as revenue_gbp
+          FROM `mydigipal.company.invoices_fct`
+          GROUP BY 1, 2
+        )
+        SELECT 
+          t.client_id,
+          COALESCE(c.client_name, t.client_id) as client_name,
+          ROUND(SUM(t.hours), 0) AS hours,
+          ROUND(SUM(t.cost_gbp), 0) AS cost,
+          ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
+          ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit,
+          ROUND((SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp)) / NULLIF(SUM(COALESCE(i.revenue_gbp, 0)), 0) * 100, 0) AS margin
+        FROM filtered_timesheets t
+        LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
+        LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
+        WHERE 1=1 {date_filter}
+        GROUP BY 1, 2
+        HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(t.hours) > 100
+        ORDER BY 6 DESC
+        """
+    else:
+        query = f"""
+        SELECT 
+          client_id,
+          COALESCE(client_name, client_id) as client_name,
+          ROUND(SUM(hours_worked), 0) AS hours,
+          ROUND(SUM(cost_gbp), 0) AS cost,
+          ROUND(SUM(revenue_gbp), 0) AS revenue,
+          ROUND(SUM(profit_gbp), 0) AS profit,
+          ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
+        FROM `mydigipal.reporting.vw_profitability`
+        WHERE 1=1 {date_filter}
+        GROUP BY 1, 2
+        HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
+        ORDER BY 6 DESC
+        """
     
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     rows = client.query(query, job_config=job_config).result()
