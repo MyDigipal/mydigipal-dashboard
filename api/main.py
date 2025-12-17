@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v2.0 - Exclude Paul's hours on MyDigipal by default
+# Dashboard API v2.1 - FULL OUTER JOIN to capture all revenue
 
 app = Flask(__name__)
 CORS(app)
@@ -19,13 +19,11 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "2.0"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "2.1"})
 
 @app.route('/api/clients')
 def get_clients():
     date_from, date_to = get_date_params()
-    # By default, exclude Paul's hours on MyDigipal (internal work)
-    # If include_paul=true, include all Paul's hours including MyDigipal
     include_paul = request.args.get('include_paul', 'false').lower() == 'true'
     
     params = []
@@ -38,28 +36,18 @@ def get_clients():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    # Build date filter for timesheets (uses 'date' column)
     ts_date_filter = ""
     if date_from:
         ts_date_filter += " AND date >= @date_from"
     if date_to:
         ts_date_filter += " AND date <= @date_to"
     
-    # Build date filter for final SELECT (uses 't.month' to avoid ambiguity)
-    final_date_filter = ""
-    if date_from:
-        final_date_filter += " AND t.month >= @date_from"
-    if date_to:
-        final_date_filter += " AND t.month <= @date_to"
-    
-    # Employee filter: exclude Paul on MyDigipal only (unless include_paul=true)
     if include_paul:
-        employee_filter = ""  # Include everyone
+        employee_filter = ""
     else:
-        # Exclude Paul's hours only on MyDigipal client
         employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
     
-    # Always use custom query to apply the filter correctly
+    # v2.1: Use FULL OUTER JOIN to capture revenue even when no timesheets exist
     query = f"""
     WITH filtered_timesheets AS (
       SELECT 
@@ -79,21 +67,30 @@ def get_clients():
       FROM `mydigipal.company.invoices_fct`
       WHERE 1=1 {date_filter}
       GROUP BY 1, 2
+    ),
+    combined AS (
+      SELECT 
+        COALESCE(t.month, i.month) as month,
+        COALESCE(t.client_id, i.client_id) as client_id,
+        COALESCE(t.hours, 0) as hours,
+        COALESCE(t.cost_gbp, 0) as cost_gbp,
+        COALESCE(i.revenue_gbp, 0) as revenue_gbp
+      FROM filtered_timesheets t
+      FULL OUTER JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
     )
     SELECT 
-      t.client_id,
-      COALESCE(c.client_name, t.client_id) as client_name,
-      ROUND(SUM(t.hours), 0) AS hours,
-      ROUND(SUM(t.cost_gbp), 0) AS cost,
-      ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
-      ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit,
-      ROUND((SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp)) / NULLIF(SUM(COALESCE(i.revenue_gbp, 0)), 0) * 100, 0) AS margin
-    FROM filtered_timesheets t
-    LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
-    LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-    WHERE 1=1 {final_date_filter}
+      cb.client_id,
+      COALESCE(c.client_name, cb.client_id) as client_name,
+      ROUND(SUM(cb.hours), 0) AS hours,
+      ROUND(SUM(cb.cost_gbp), 0) AS cost,
+      ROUND(SUM(cb.revenue_gbp), 0) AS revenue,
+      ROUND(SUM(cb.revenue_gbp) - SUM(cb.cost_gbp), 0) AS profit,
+      ROUND((SUM(cb.revenue_gbp) - SUM(cb.cost_gbp)) / NULLIF(SUM(cb.revenue_gbp), 0) * 100, 0) AS margin
+    FROM combined cb
+    LEFT JOIN `mydigipal.company.clients_dim` c ON cb.client_id = c.client_id
+    WHERE cb.client_id IS NOT NULL
     GROUP BY 1, 2
-    HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(t.hours) > 100
+    HAVING SUM(cb.revenue_gbp) > 0 OR SUM(cb.hours) > 100
     ORDER BY 6 DESC
     """
     
@@ -149,7 +146,6 @@ def get_client_timeline(client_id):
             date_filter += " AND t.date <= @date_to"
             params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
         
-        # Daily breakdown by employee
         query_daily = f"""
         SELECT 
           FORMAT_DATE('%Y-%m-%d', t.date) as date,
@@ -167,7 +163,6 @@ def get_client_timeline(client_id):
         daily_rows = client.query(query_daily, job_config=job_config).result()
         daily_data = [dict(row) for row in daily_rows]
         
-        # Total by employee for the period
         query_totals = f"""
         SELECT 
           t.employee_id,
@@ -183,7 +178,6 @@ def get_client_timeline(client_id):
         total_rows = client.query(query_totals, job_config=job_config).result()
         totals_data = [dict(row) for row in total_rows]
         
-        # Client info
         query_client = f"""
         SELECT 
           COALESCE(c.client_name, @client_id) as client_name
@@ -210,16 +204,13 @@ def get_client_timeline(client_id):
 def get_budget_progress():
     """Get budget vs actual hours for the selected month with pace calculation"""
     try:
-        # Get month parameter (default to current month)
         month = request.args.get('month')
         if not month:
             month = datetime.now().strftime('%Y-%m')
         
-        # Parse month to get date range
         year, mon = month.split('-')
         month_start = f"{year}-{mon}-01"
         
-        # Calculate month end
         if int(mon) == 12:
             next_year = int(year) + 1
             next_month = 1
@@ -228,7 +219,6 @@ def get_budget_progress():
             next_month = int(mon) + 1
         month_end = f"{next_year}-{next_month:02d}-01"
         
-        # Calculate progress through month
         today = datetime.now()
         month_start_date = datetime(int(year), int(mon), 1)
         if int(mon) == 12:
@@ -265,17 +255,6 @@ def get_budget_progress():
           FROM `mydigipal.company.timesheets_fct` t
           WHERE t.date >= @month_start AND t.date < @month_end
           GROUP BY 1
-        ),
-        employee_breakdown AS (
-          SELECT 
-            t.client_id,
-            t.employee_id,
-            COALESCE(e.employee_name, t.employee_id) as employee_name,
-            ROUND(SUM(t.hours), 1) as hours
-          FROM `mydigipal.company.timesheets_fct` t
-          LEFT JOIN `mydigipal.company.employees_dim` e ON t.employee_id = e.employee_id
-          WHERE t.date >= @month_start AND t.date < @month_end
-          GROUP BY 1, 2, 3
         )
         SELECT 
           b.client_id,
@@ -298,14 +277,10 @@ def get_budget_progress():
             budgeted = r['budgeted_hours']
             actual = r['actual_hours']
             
-            # Calculate remaining hours
             r['remaining_hours'] = round(budgeted - actual, 1)
-            
-            # Calculate expected hours at this point in month
             expected_at_pace = round(budgeted * month_progress, 1)
             r['expected_hours'] = expected_at_pace
             
-            # Calculate pace status
             pace_diff = actual - expected_at_pace
             r['pace_diff'] = round(pace_diff, 1)
             
@@ -317,10 +292,8 @@ def get_budget_progress():
                 r['status'] = 'ok'
             
             r['progress_pct'] = round((actual / budgeted * 100) if budgeted > 0 else 0, 0)
-            
             result.append(r)
         
-        # Get employee breakdown for each client
         query_breakdown = """
         SELECT 
           t.client_id,
@@ -383,7 +356,6 @@ def get_budget_months():
 @app.route('/api/monthly')
 def get_monthly():
     date_from, date_to = get_date_params()
-    # Same logic: exclude Paul's hours on MyDigipal by default
     include_paul = request.args.get('include_paul', 'false').lower() == 'true'
     
     params = []
@@ -399,20 +371,18 @@ def get_monthly():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    # Build date filter for timesheets (uses 'date' column)
     ts_date_filter = ""
     if date_from:
         ts_date_filter += " AND date >= @date_from"
     if date_to:
         ts_date_filter += " AND date <= @date_to"
     
-    # Employee filter
     if include_paul:
         employee_filter = ""
     else:
         employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
     
-    # Custom query to properly exclude Paul on MyDigipal
+    # v2.1: Use FULL OUTER JOIN for monthly data too
     query = f"""
     WITH filtered_timesheets AS (
       SELECT 
@@ -432,16 +402,24 @@ def get_monthly():
       FROM `mydigipal.company.invoices_fct`
       WHERE 1=1 {date_filter}
       GROUP BY 1, 2
+    ),
+    combined AS (
+      SELECT 
+        COALESCE(t.month, i.month) as month,
+        COALESCE(t.hours, 0) as hours,
+        COALESCE(t.cost_gbp, 0) as cost_gbp,
+        COALESCE(i.revenue_gbp, 0) as revenue_gbp
+      FROM filtered_timesheets t
+      FULL OUTER JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
     )
     SELECT 
-      FORMAT_DATE('%Y-%m', t.month) as month,
-      ROUND(SUM(t.hours), 0) AS hours,
-      ROUND(SUM(t.cost_gbp), 0) AS cost,
-      ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
-      ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit
-    FROM filtered_timesheets t
-    LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-    WHERE 1=1 {date_filter.replace('month', 't.month')}
+      FORMAT_DATE('%Y-%m', month) as month,
+      ROUND(SUM(hours), 0) AS hours,
+      ROUND(SUM(cost_gbp), 0) AS cost,
+      ROUND(SUM(revenue_gbp), 0) AS revenue,
+      ROUND(SUM(revenue_gbp) - SUM(cost_gbp), 0) AS profit
+    FROM combined
+    WHERE month IS NOT NULL
     GROUP BY 1
     ORDER BY 1
     """
