@@ -713,11 +713,11 @@
             
             <!-- Clients Panel (Admin only) -->
             <div class="panel" id="panel-clients">
-                <!-- Toggle to exclude Paul's hours -->
-                <label class="filter-toggle" id="filterTogglePaul" onclick="toggleExcludePaul()">
-                    <input type="checkbox" id="excludePaul">
+                <!-- Toggle to include Paul's MyDigipal hours -->
+                <label class="filter-toggle" id="filterTogglePaul" onclick="toggleIncludePaulMyDigipal()">
+                    <input type="checkbox" id="includePaulMyDigipal">
                     <span class="filter-toggle-icon">👤</span>
-                    <span class="filter-toggle-label">Exclure heures de Paul</span>
+                    <span class="filter-toggle-label">Inclure heures Paul sur MyDigipal</span>
                     <span class="filter-toggle-switch"></span>
                 </label>
                 
@@ -743,6 +743,14 @@
             
             <!-- Monthly Panel (Admin only) -->
             <div class="panel" id="panel-monthly">
+                <!-- Toggle to include Paul's MyDigipal hours -->
+                <label class="filter-toggle" id="filterTogglePaulMonthly" onclick="toggleIncludePaulMyDigipalMonthly()">
+                    <input type="checkbox" id="includePaulMyDigipalMonthly">
+                    <span class="filter-toggle-icon">👤</span>
+                    <span class="filter-toggle-label">Inclure heures Paul sur MyDigipal</span>
+                    <span class="filter-toggle-switch"></span>
+                </label>
+                
                 <h2>Évolution Mensuelle</h2>
                 <div class="chart-container">
                     <canvas id="monthlyChart"></canvas>
@@ -1132,12 +1140,26 @@
         });
         
         // ============== TOGGLE FILTERS ==============
-        function toggleExcludePaul() {
-            const checkbox = document.getElementById('excludePaul');
+        function toggleIncludePaulMyDigipal() {
+            const checkbox = document.getElementById('includePaulMyDigipal');
             const toggle = document.getElementById('filterTogglePaul');
             checkbox.checked = !checkbox.checked;
             toggle.classList.toggle('active', checkbox.checked);
+            // Sync with monthly toggle
+            document.getElementById('includePaulMyDigipalMonthly').checked = checkbox.checked;
+            document.getElementById('filterTogglePaulMonthly').classList.toggle('active', checkbox.checked);
             loadClientsData();
+        }
+        
+        function toggleIncludePaulMyDigipalMonthly() {
+            const checkbox = document.getElementById('includePaulMyDigipalMonthly');
+            const toggle = document.getElementById('filterTogglePaulMonthly');
+            checkbox.checked = !checkbox.checked;
+            toggle.classList.toggle('active', checkbox.checked);
+            // Sync with clients toggle
+            document.getElementById('includePaulMyDigipal').checked = checkbox.checked;
+            document.getElementById('filterTogglePaul').classList.toggle('active', checkbox.checked);
+            loadMonthlyData();
         }
         
         function toggleInternalFilter() {
@@ -1209,10 +1231,12 @@
         }
         
         async function loadClientsData() {
-            const excludePaul = document.getElementById('excludePaul').checked;
+            // By default, Paul's MyDigipal hours are excluded
+            // If toggle is ON, include them (pass include_paul=true)
+            const includePaul = document.getElementById('includePaulMyDigipal').checked;
             let params = getDateParams();
-            if (excludePaul) {
-                params += (params ? '&' : '?') + 'exclude_employee=paul';
+            if (includePaul) {
+                params += (params ? '&' : '?') + 'include_paul=true';
             }
             try {
                 const res = await fetch(API_URL + '/api/clients' + params);
@@ -1239,6 +1263,22 @@
             }
         }
         
+        async function loadMonthlyData() {
+            const includePaul = document.getElementById('includePaulMyDigipalMonthly').checked;
+            let params = getDateParams();
+            if (includePaul) {
+                params += (params ? '&' : '?') + 'include_paul=true';
+            }
+            try {
+                const res = await fetch(API_URL + '/api/monthly' + params);
+                if (!res.ok) throw new Error('API Error');
+                monthlyData = await res.json();
+                renderMonthlyChart();
+            } catch (e) {
+                console.error('Error loading monthly:', e);
+            }
+        }
+        
         async function init() {
             if (isAdmin) {
                 document.getElementById('kpiRevenue').textContent = '...';
@@ -1252,12 +1292,27 @@
             document.getElementById('clientDetailEmpty').style.display = 'block';
             document.getElementById('clientTotalHours').textContent = '';
             
-            [clientsData, monthlyData, employeesData, breakdownData] = await Promise.all([
-                fetchData('/api/clients'),
-                fetchData('/api/monthly'),
+            // Get toggle state to pass to API
+            const includePaul = document.getElementById('includePaulMyDigipal').checked;
+            let clientsParams = getDateParams();
+            let monthlyParams = getDateParams();
+            if (includePaul) {
+                clientsParams += (clientsParams ? '&' : '?') + 'include_paul=true';
+                monthlyParams += (monthlyParams ? '&' : '?') + 'include_paul=true';
+            }
+            
+            // Fetch data with proper params
+            const [clientsRes, monthlyRes, employeesRes, breakdownRes] = await Promise.all([
+                fetch(API_URL + '/api/clients' + clientsParams).then(r => r.json()).catch(() => null),
+                fetch(API_URL + '/api/monthly' + monthlyParams).then(r => r.json()).catch(() => null),
                 fetchData('/api/employees'),
                 fetchData('/api/employees-breakdown')
             ]);
+            
+            clientsData = clientsRes;
+            monthlyData = monthlyRes;
+            employeesData = employeesRes;
+            breakdownData = breakdownRes;
             
             if (!clientsData) return;
             
