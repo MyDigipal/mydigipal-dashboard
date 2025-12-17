@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.8 - Add exclude_employee filter for profitability
+# Dashboard API v1.9 - Fix exclude_employee date filter ambiguity
 
 app = Flask(__name__)
 CORS(app)
@@ -19,7 +19,7 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.8"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.9"})
 
 @app.route('/api/clients')
 def get_clients():
@@ -41,6 +41,20 @@ def get_clients():
         employee_filter = " AND employee_id != @exclude_employee"
         params.append(bigquery.ScalarQueryParameter("exclude_employee", "STRING", exclude_employee))
         
+        # Build date filter for timesheets (uses 'date' column)
+        ts_date_filter = ""
+        if date_from:
+            ts_date_filter += " AND date >= @date_from"
+        if date_to:
+            ts_date_filter += " AND date <= @date_to"
+        
+        # Build date filter for final SELECT (uses 't.month' to avoid ambiguity)
+        final_date_filter = ""
+        if date_from:
+            final_date_filter += " AND t.month >= @date_from"
+        if date_to:
+            final_date_filter += " AND t.month <= @date_to"
+        
         # Custom query that recalculates costs without the excluded employee
         query = f"""
         WITH filtered_timesheets AS (
@@ -50,7 +64,7 @@ def get_clients():
             SUM(hours) as hours,
             SUM(cost_gbp) as cost_gbp
           FROM `mydigipal.company.timesheets_with_cost`
-          WHERE 1=1 {employee_filter}
+          WHERE 1=1 {employee_filter} {ts_date_filter}
           GROUP BY 1, 2
         ),
         invoices AS (
@@ -59,6 +73,7 @@ def get_clients():
             client_id,
             SUM(real_revenue_gbp) as revenue_gbp
           FROM `mydigipal.company.invoices_fct`
+          WHERE 1=1 {date_filter}
           GROUP BY 1, 2
         )
         SELECT 
@@ -72,7 +87,7 @@ def get_clients():
         FROM filtered_timesheets t
         LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
         LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-        WHERE 1=1 {date_filter}
+        WHERE 1=1 {final_date_filter}
         GROUP BY 1, 2
         HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(t.hours) > 100
         ORDER BY 6 DESC
