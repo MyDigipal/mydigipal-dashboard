@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v1.9 - Fix exclude_employee date filter ambiguity
+# Dashboard API v2.0 - Exclude Paul's hours on MyDigipal by default
 
 app = Flask(__name__)
 CORS(app)
@@ -19,16 +19,17 @@ def get_date_params():
 
 @app.route('/')
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "1.9"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "2.0"})
 
 @app.route('/api/clients')
 def get_clients():
     date_from, date_to = get_date_params()
-    exclude_employee = request.args.get('exclude_employee')
+    # By default, exclude Paul's hours on MyDigipal (internal work)
+    # If include_paul=true, include all Paul's hours including MyDigipal
+    include_paul = request.args.get('include_paul', 'false').lower() == 'true'
     
     params = []
     date_filter = ""
-    employee_filter = ""
     
     if date_from:
         date_filter += " AND month >= @date_from"
@@ -37,77 +38,64 @@ def get_clients():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
-    if exclude_employee:
-        employee_filter = " AND employee_id != @exclude_employee"
-        params.append(bigquery.ScalarQueryParameter("exclude_employee", "STRING", exclude_employee))
-        
-        # Build date filter for timesheets (uses 'date' column)
-        ts_date_filter = ""
-        if date_from:
-            ts_date_filter += " AND date >= @date_from"
-        if date_to:
-            ts_date_filter += " AND date <= @date_to"
-        
-        # Build date filter for final SELECT (uses 't.month' to avoid ambiguity)
-        final_date_filter = ""
-        if date_from:
-            final_date_filter += " AND t.month >= @date_from"
-        if date_to:
-            final_date_filter += " AND t.month <= @date_to"
-        
-        # Custom query that recalculates costs without the excluded employee
-        query = f"""
-        WITH filtered_timesheets AS (
-          SELECT 
-            DATE_TRUNC(date, MONTH) as month,
-            client_id,
-            SUM(hours) as hours,
-            SUM(cost_gbp) as cost_gbp
-          FROM `mydigipal.company.timesheets_with_cost`
-          WHERE 1=1 {employee_filter} {ts_date_filter}
-          GROUP BY 1, 2
-        ),
-        invoices AS (
-          SELECT 
-            month,
-            client_id,
-            SUM(real_revenue_gbp) as revenue_gbp
-          FROM `mydigipal.company.invoices_fct`
-          WHERE 1=1 {date_filter}
-          GROUP BY 1, 2
-        )
-        SELECT 
-          t.client_id,
-          COALESCE(c.client_name, t.client_id) as client_name,
-          ROUND(SUM(t.hours), 0) AS hours,
-          ROUND(SUM(t.cost_gbp), 0) AS cost,
-          ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
-          ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit,
-          ROUND((SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp)) / NULLIF(SUM(COALESCE(i.revenue_gbp, 0)), 0) * 100, 0) AS margin
-        FROM filtered_timesheets t
-        LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
-        LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-        WHERE 1=1 {final_date_filter}
-        GROUP BY 1, 2
-        HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(t.hours) > 100
-        ORDER BY 6 DESC
-        """
+    # Build date filter for timesheets (uses 'date' column)
+    ts_date_filter = ""
+    if date_from:
+        ts_date_filter += " AND date >= @date_from"
+    if date_to:
+        ts_date_filter += " AND date <= @date_to"
+    
+    # Build date filter for final SELECT (uses 't.month' to avoid ambiguity)
+    final_date_filter = ""
+    if date_from:
+        final_date_filter += " AND t.month >= @date_from"
+    if date_to:
+        final_date_filter += " AND t.month <= @date_to"
+    
+    # Employee filter: exclude Paul on MyDigipal only (unless include_paul=true)
+    if include_paul:
+        employee_filter = ""  # Include everyone
     else:
-        query = f"""
-        SELECT 
-          client_id,
-          COALESCE(client_name, client_id) as client_name,
-          ROUND(SUM(hours_worked), 0) AS hours,
-          ROUND(SUM(cost_gbp), 0) AS cost,
-          ROUND(SUM(revenue_gbp), 0) AS revenue,
-          ROUND(SUM(profit_gbp), 0) AS profit,
-          ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
-        FROM `mydigipal.reporting.vw_profitability`
-        WHERE 1=1 {date_filter}
-        GROUP BY 1, 2
-        HAVING SUM(revenue_gbp) > 0 OR SUM(hours_worked) > 100
-        ORDER BY 6 DESC
-        """
+        # Exclude Paul's hours only on MyDigipal client
+        employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
+    
+    # Always use custom query to apply the filter correctly
+    query = f"""
+    WITH filtered_timesheets AS (
+      SELECT 
+        DATE_TRUNC(date, MONTH) as month,
+        client_id,
+        SUM(hours) as hours,
+        SUM(cost_gbp) as cost_gbp
+      FROM `mydigipal.company.timesheets_with_cost`
+      WHERE 1=1 {employee_filter} {ts_date_filter}
+      GROUP BY 1, 2
+    ),
+    invoices AS (
+      SELECT 
+        month,
+        client_id,
+        SUM(real_revenue_gbp) as revenue_gbp
+      FROM `mydigipal.company.invoices_fct`
+      WHERE 1=1 {date_filter}
+      GROUP BY 1, 2
+    )
+    SELECT 
+      t.client_id,
+      COALESCE(c.client_name, t.client_id) as client_name,
+      ROUND(SUM(t.hours), 0) AS hours,
+      ROUND(SUM(t.cost_gbp), 0) AS cost,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit,
+      ROUND((SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp)) / NULLIF(SUM(COALESCE(i.revenue_gbp, 0)), 0) * 100, 0) AS margin
+    FROM filtered_timesheets t
+    LEFT JOIN `mydigipal.company.clients_dim` c ON t.client_id = c.client_id
+    LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
+    WHERE 1=1 {final_date_filter}
+    GROUP BY 1, 2
+    HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(t.hours) > 100
+    ORDER BY 6 DESC
+    """
     
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     rows = client.query(query, job_config=job_config).result()
@@ -318,19 +306,16 @@ def get_budget_progress():
             r['expected_hours'] = expected_at_pace
             
             # Calculate pace status
-            # If actual > expected, we're ahead (bad - spending too fast)
-            # If actual < expected, we're behind (good - on track or under)
             pace_diff = actual - expected_at_pace
             r['pace_diff'] = round(pace_diff, 1)
             
             if actual >= budgeted:
                 r['status'] = 'exceeded'
-            elif pace_diff > budgeted * 0.1:  # More than 10% ahead of pace
+            elif pace_diff > budgeted * 0.1:
                 r['status'] = 'warning'
             else:
                 r['status'] = 'ok'
             
-            # Progress percentage
             r['progress_pct'] = round((actual / budgeted * 100) if budgeted > 0 else 0, 0)
             
             result.append(r)
@@ -351,7 +336,6 @@ def get_budget_progress():
         """
         breakdown_rows = client.query(query_breakdown, job_config=job_config).result()
         
-        # Group by client
         breakdown_by_client = {}
         for row in breakdown_rows:
             cid = row['client_id']
@@ -363,7 +347,6 @@ def get_budget_progress():
                 'hours': row['hours']
             })
         
-        # Add breakdown to each client
         for r in result:
             r['employees'] = breakdown_by_client.get(r['client_id'], [])
         
@@ -400,6 +383,8 @@ def get_budget_months():
 @app.route('/api/monthly')
 def get_monthly():
     date_from, date_to = get_date_params()
+    # Same logic: exclude Paul's hours on MyDigipal by default
+    include_paul = request.args.get('include_paul', 'false').lower() == 'true'
     
     params = []
     date_filter = ""
@@ -414,15 +399,49 @@ def get_monthly():
         date_filter += " AND month <= @date_to"
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
     
+    # Build date filter for timesheets (uses 'date' column)
+    ts_date_filter = ""
+    if date_from:
+        ts_date_filter += " AND date >= @date_from"
+    if date_to:
+        ts_date_filter += " AND date <= @date_to"
+    
+    # Employee filter
+    if include_paul:
+        employee_filter = ""
+    else:
+        employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
+    
+    # Custom query to properly exclude Paul on MyDigipal
     query = f"""
+    WITH filtered_timesheets AS (
+      SELECT 
+        DATE_TRUNC(date, MONTH) as month,
+        client_id,
+        SUM(hours) as hours,
+        SUM(cost_gbp) as cost_gbp
+      FROM `mydigipal.company.timesheets_with_cost`
+      WHERE 1=1 {employee_filter} {ts_date_filter}
+      GROUP BY 1, 2
+    ),
+    invoices AS (
+      SELECT 
+        month,
+        client_id,
+        SUM(real_revenue_gbp) as revenue_gbp
+      FROM `mydigipal.company.invoices_fct`
+      WHERE 1=1 {date_filter}
+      GROUP BY 1, 2
+    )
     SELECT 
-      FORMAT_DATE('%Y-%m', month) as month,
-      ROUND(SUM(hours_worked), 0) AS hours,
-      ROUND(SUM(cost_gbp), 0) AS cost,
-      ROUND(SUM(revenue_gbp), 0) AS revenue,
-      ROUND(SUM(profit_gbp), 0) AS profit
-    FROM `mydigipal.reporting.vw_profitability`
-    WHERE 1=1 {date_filter}
+      FORMAT_DATE('%Y-%m', t.month) as month,
+      ROUND(SUM(t.hours), 0) AS hours,
+      ROUND(SUM(t.cost_gbp), 0) AS cost,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) AS revenue,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(t.cost_gbp), 0) AS profit
+    FROM filtered_timesheets t
+    LEFT JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
+    WHERE 1=1 {date_filter.replace('month', 't.month')}
     GROUP BY 1
     ORDER BY 1
     """
@@ -478,8 +497,6 @@ def get_employees_breakdown():
             date_filter += " AND month <= @date_to"
             params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
         
-        # Use column positions to avoid "aggregation of aggregation" error
-        # Column 2 = employee_name, Column 5 = total_hours
         query = f"""
         SELECT 
           employee_id,
@@ -497,7 +514,6 @@ def get_employees_breakdown():
         job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
         rows = client.query(query, job_config=job_config).result()
         
-        # Rename total_hours to hours for frontend compatibility
         result = []
         for row in rows:
             r = dict(row)
