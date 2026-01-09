@@ -46,16 +46,18 @@
         <!-- Date Filter Bar -->
         <div class="date-filter-bar" id="dateFilterBar">
             <label>📅 Période :</label>
-            <button class="date-preset" data-preset="all">Tout</button>
             <button class="date-preset active" data-preset="7days">7 jours</button>
             <button class="date-preset" data-preset="30days">30 jours</button>
             <button class="date-preset" data-preset="90days">90 jours</button>
+            <button class="date-preset" data-preset="lastmonth">Mois dernier</button>
             <button class="date-preset" data-preset="ytd">YTD</button>
+            <button class="date-preset" data-preset="all">Tout</button>
             <div class="date-range-inputs" id="customDateRange">
+                <label style="font-size: 0.85em; color: #666; margin: 0 5px;">Du</label>
                 <input type="date" class="date-input" id="dateFrom">
-                <span>→</span>
+                <label style="font-size: 0.85em; color: #666; margin: 0 5px;">au</label>
                 <input type="date" class="date-input" id="dateTo">
-                <button class="apply-btn" id="applyDateRange">Appliquer</button>
+                <button class="apply-btn" id="applyDateRange">✓ Appliquer</button>
             </div>
             <div class="current-period" id="currentPeriod">7 derniers jours</div>
         </div>

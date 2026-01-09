@@ -144,33 +144,49 @@ class DashboardApp {
    */
   applyDatePreset(preset) {
     const today = new Date();
-    let dateFrom, dateTo;
+    let dateFrom, dateTo, label;
 
     switch (preset) {
       case '7days':
         dateFrom = new Date(today.setDate(today.getDate() - 7));
         dateTo = new Date();
+        label = '7 derniers jours';
         break;
       case '30days':
         dateFrom = new Date(today.setDate(today.getDate() - 30));
         dateTo = new Date();
+        label = '30 derniers jours';
         break;
       case '90days':
         dateFrom = new Date(today.setDate(today.getDate() - 90));
         dateTo = new Date();
+        label = '90 derniers jours';
+        break;
+      case 'lastmonth':
+        const now = new Date();
+        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        dateFrom = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+        dateTo = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+        const monthName = CONFIG.MONTH_NAMES_FR[lastMonth.getMonth()];
+        label = `${monthName} ${lastMonth.getFullYear()}`;
         break;
       case 'ytd':
         dateFrom = new Date(new Date().getFullYear(), 0, 1);
         dateTo = new Date();
+        label = 'Année en cours';
         break;
       case 'all':
         dateFrom = null;
         dateTo = null;
+        label = 'Toutes les données';
         break;
     }
 
     this.currentFilters.dateFrom = dateFrom ? dateFrom.toISOString().split('T')[0] : null;
     this.currentFilters.dateTo = dateTo ? dateTo.toISOString().split('T')[0] : null;
+
+    // Update current period label
+    this.updatePeriodLabel(label);
 
     // Update active preset button
     document.querySelectorAll('.date-preset').forEach(btn => {
@@ -191,6 +207,18 @@ class DashboardApp {
     this.currentFilters.dateFrom = dateFrom || null;
     this.currentFilters.dateTo = dateTo || null;
 
+    // Update current period label
+    if (dateFrom && dateTo) {
+      const from = new Date(dateFrom);
+      const to = new Date(dateTo);
+      const label = `${from.toLocaleDateString('fr-FR')} - ${to.toLocaleDateString('fr-FR')}`;
+      this.updatePeriodLabel(label);
+    } else if (dateFrom) {
+      this.updatePeriodLabel(`Depuis ${new Date(dateFrom).toLocaleDateString('fr-FR')}`);
+    } else if (dateTo) {
+      this.updatePeriodLabel(`Jusqu'au ${new Date(dateTo).toLocaleDateString('fr-FR')}`);
+    }
+
     // Update active preset button (clear all)
     document.querySelectorAll('.date-preset').forEach(btn => {
       btn.classList.remove('active');
@@ -198,6 +226,17 @@ class DashboardApp {
 
     // Refresh data
     this.refreshCurrentTab();
+  }
+
+  /**
+   * Update period label display
+   * @param {string} label - Label to display
+   */
+  updatePeriodLabel(label) {
+    const periodElement = document.getElementById('currentPeriod');
+    if (periodElement) {
+      periodElement.textContent = label;
+    }
   }
 
   /**
