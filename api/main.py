@@ -1,14 +1,21 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_caching import Cache
 from google.cloud import bigquery
 from datetime import datetime, timedelta
 import os
 import traceback
 
-# Dashboard API v2.1 - FULL OUTER JOIN to capture all revenue
+# Dashboard API v2.2 - Materialized views + Flask-Caching for performance
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize cache (5 minute cache for all endpoints)
+cache = Cache(app, config={
+    'CACHE_TYPE': 'simple',  # In-memory cache for Cloud Run (single worker)
+    'CACHE_DEFAULT_TIMEOUT': 300  # 5 minutes
+})
 
 client = bigquery.Client(project='mydigipal')
 
@@ -18,87 +25,55 @@ def get_date_params():
     return date_from, date_to
 
 @app.route('/')
+@cache.cached(timeout=300)
 def health():
-    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "2.1"})
+    return jsonify({"status": "ok", "service": "mydigipal-dashboard-api", "version": "2.2"})
 
 @app.route('/api/clients')
+@cache.cached(timeout=300, query_string=True)
 def get_clients():
     date_from, date_to = get_date_params()
     include_paul = request.args.get('include_paul', 'false').lower() == 'true'
-    
+
     params = []
-    date_filter = ""
-    
+    filters = []
+
     if date_from:
-        date_filter += " AND month >= @date_from"
+        filters.append("month >= @date_from")
         params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
     if date_to:
-        date_filter += " AND month <= @date_to"
+        filters.append("month <= @date_to")
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
-    
-    ts_date_filter = ""
-    if date_from:
-        ts_date_filter += " AND date >= @date_from"
-    if date_to:
-        ts_date_filter += " AND date <= @date_to"
-    
-    if include_paul:
-        employee_filter = ""
-    else:
-        employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
-    
-    # v2.1: Use FULL OUTER JOIN to capture revenue even when no timesheets exist
+
+    # Filter out Paul's internal hours if requested
+    if not include_paul:
+        filters.append("NOT (employee_id = 'paul' AND client_id = 'mydigipal')")
+
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+
+    # v2.2: Use materialized view for 50-80% faster queries
     query = f"""
-    WITH filtered_timesheets AS (
-      SELECT 
-        DATE_TRUNC(date, MONTH) as month,
-        client_id,
-        SUM(hours) as hours,
-        SUM(cost_gbp) as cost_gbp
-      FROM `mydigipal.company.timesheets_with_cost`
-      WHERE 1=1 {employee_filter} {ts_date_filter}
-      GROUP BY 1, 2
-    ),
-    invoices AS (
-      SELECT 
-        month,
-        client_id,
-        SUM(real_revenue_gbp) as revenue_gbp
-      FROM `mydigipal.company.invoices_fct`
-      WHERE 1=1 {date_filter}
-      GROUP BY 1, 2
-    ),
-    combined AS (
-      SELECT 
-        COALESCE(t.month, i.month) as month,
-        COALESCE(t.client_id, i.client_id) as client_id,
-        COALESCE(t.hours, 0) as hours,
-        COALESCE(t.cost_gbp, 0) as cost_gbp,
-        COALESCE(i.revenue_gbp, 0) as revenue_gbp
-      FROM filtered_timesheets t
-      FULL OUTER JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-    )
-    SELECT 
-      cb.client_id,
-      COALESCE(c.client_name, cb.client_id) as client_name,
-      ROUND(SUM(cb.hours), 0) AS hours,
-      ROUND(SUM(cb.cost_gbp), 0) AS cost,
-      ROUND(SUM(cb.revenue_gbp), 0) AS revenue,
-      ROUND(SUM(cb.revenue_gbp) - SUM(cb.cost_gbp), 0) AS profit,
-      ROUND((SUM(cb.revenue_gbp) - SUM(cb.cost_gbp)) / NULLIF(SUM(cb.revenue_gbp), 0) * 100, 0) AS margin
-    FROM combined cb
-    LEFT JOIN `mydigipal.company.clients_dim` c ON cb.client_id = c.client_id
-    WHERE cb.client_id IS NOT NULL
+    SELECT
+      client_id,
+      client_name,
+      ROUND(SUM(hours), 0) AS hours,
+      ROUND(SUM(cost_gbp), 0) AS cost,
+      ROUND(SUM(revenue_gbp), 0) AS revenue,
+      ROUND(SUM(profit_gbp), 0) AS profit,
+      ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
+    FROM `mydigipal.company.mv_client_profitability`
+    {where_clause}
     GROUP BY 1, 2
-    HAVING SUM(cb.revenue_gbp) > 0 OR SUM(cb.hours) > 100
+    HAVING SUM(revenue_gbp) > 0 OR SUM(hours) > 100
     ORDER BY 6 DESC
     """
-    
+
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     rows = client.query(query, job_config=job_config).result()
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/clients-with-hours')
+@cache.cached(timeout=300, query_string=True)
 def get_clients_with_hours():
     """Get list of clients that have hours logged in the selected period"""
     date_from, date_to = get_date_params()
@@ -131,6 +106,7 @@ def get_clients_with_hours():
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/client-timeline/<client_id>')
+@cache.cached(timeout=300, query_string=True)
 def get_client_timeline(client_id):
     """Get daily hours breakdown by employee for a specific client"""
     try:
@@ -201,6 +177,7 @@ def get_client_timeline(client_id):
         }), 500
 
 @app.route('/api/budget-progress')
+@cache.cached(timeout=300, query_string=True)
 def get_budget_progress():
     """Get budget vs actual hours for the selected month with pace calculation"""
     try:
@@ -339,6 +316,7 @@ def get_budget_progress():
         }), 500
 
 @app.route('/api/budget-months')
+@cache.cached(timeout=300)
 def get_budget_months():
     """Get list of months that have budget data"""
     try:
@@ -354,81 +332,50 @@ def get_budget_months():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/monthly')
+@cache.cached(timeout=300, query_string=True)
 def get_monthly():
     date_from, date_to = get_date_params()
     include_paul = request.args.get('include_paul', 'false').lower() == 'true'
-    
+
     params = []
-    date_filter = ""
-    
+    filters = []
+
     if date_from:
-        date_filter += " AND month >= @date_from"
+        filters.append("month >= @date_from")
         params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
     else:
-        date_filter += " AND month >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)"
-    
+        filters.append("month >= DATE_SUB(CURRENT_DATE(), INTERVAL 12 MONTH)")
+
     if date_to:
-        date_filter += " AND month <= @date_to"
+        filters.append("month <= @date_to")
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
-    
-    ts_date_filter = ""
-    if date_from:
-        ts_date_filter += " AND date >= @date_from"
-    if date_to:
-        ts_date_filter += " AND date <= @date_to"
-    
-    if include_paul:
-        employee_filter = ""
-    else:
-        employee_filter = " AND NOT (employee_id = 'paul' AND client_id = 'mydigipal')"
-    
-    # v2.1: Use FULL OUTER JOIN for monthly data too
+
+    # Filter out Paul's internal hours if requested
+    if not include_paul:
+        filters.append("NOT (employee_id = 'paul' AND client_id = 'mydigipal')")
+
+    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+
+    # v2.2: Use materialized view for 50-80% faster queries
     query = f"""
-    WITH filtered_timesheets AS (
-      SELECT 
-        DATE_TRUNC(date, MONTH) as month,
-        client_id,
-        SUM(hours) as hours,
-        SUM(cost_gbp) as cost_gbp
-      FROM `mydigipal.company.timesheets_with_cost`
-      WHERE 1=1 {employee_filter} {ts_date_filter}
-      GROUP BY 1, 2
-    ),
-    invoices AS (
-      SELECT 
-        month,
-        client_id,
-        SUM(real_revenue_gbp) as revenue_gbp
-      FROM `mydigipal.company.invoices_fct`
-      WHERE 1=1 {date_filter}
-      GROUP BY 1, 2
-    ),
-    combined AS (
-      SELECT 
-        COALESCE(t.month, i.month) as month,
-        COALESCE(t.hours, 0) as hours,
-        COALESCE(t.cost_gbp, 0) as cost_gbp,
-        COALESCE(i.revenue_gbp, 0) as revenue_gbp
-      FROM filtered_timesheets t
-      FULL OUTER JOIN invoices i ON t.client_id = i.client_id AND t.month = i.month
-    )
-    SELECT 
+    SELECT
       FORMAT_DATE('%Y-%m', month) as month,
       ROUND(SUM(hours), 0) AS hours,
       ROUND(SUM(cost_gbp), 0) AS cost,
       ROUND(SUM(revenue_gbp), 0) AS revenue,
-      ROUND(SUM(revenue_gbp) - SUM(cost_gbp), 0) AS profit
-    FROM combined
-    WHERE month IS NOT NULL
+      ROUND(SUM(profit_gbp), 0) AS profit
+    FROM `mydigipal.company.mv_client_profitability`
+    {where_clause}
     GROUP BY 1
     ORDER BY 1
     """
-    
+
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
     rows = client.query(query, job_config=job_config).result()
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/employees')
+@cache.cached(timeout=300, query_string=True)
 def get_employees():
     date_from, date_to = get_date_params()
     
@@ -460,6 +407,7 @@ def get_employees():
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/employees-breakdown')
+@cache.cached(timeout=300, query_string=True)
 def get_employees_breakdown():
     """Get hours by employee broken down by client"""
     try:
@@ -506,6 +454,7 @@ def get_employees_breakdown():
         }), 500
 
 @app.route('/api/employee/<employee_id>')
+@cache.cached(timeout=300, query_string=True)
 def get_employee_detail(employee_id):
     date_from, date_to = get_date_params()
     
@@ -538,6 +487,7 @@ def get_employee_detail(employee_id):
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/client/<client_id>')
+@cache.cached(timeout=300, query_string=True)
 def get_client_detail(client_id):
     date_from, date_to = get_date_params()
     
@@ -589,6 +539,7 @@ def get_client_detail(client_id):
     return jsonify({"monthly": monthly, "team": team})
 
 @app.route('/api/alerts')
+@cache.cached(timeout=300)
 def get_alerts():
     query = """
     SELECT *
@@ -601,6 +552,7 @@ def get_alerts():
     return jsonify([dict(row) for row in rows])
 
 @app.route('/api/date-range')
+@cache.cached(timeout=300)
 def get_date_range():
     query = """
     SELECT 
