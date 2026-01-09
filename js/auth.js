@@ -29,9 +29,38 @@ class AuthManager {
       }
     }
 
-    // Show login screen if no valid session
+    // Show login screen and initialize Google Sign-In
     this.showLogin();
+    this.initializeGoogleSignIn();
     this.initialized = true;
+  }
+
+  /**
+   * Initialize Google Sign-In button
+   */
+  initializeGoogleSignIn() {
+    // Wait for Google API to load
+    if (typeof google === 'undefined' || !google.accounts) {
+      setTimeout(() => this.initializeGoogleSignIn(), 100);
+      return;
+    }
+
+    try {
+      google.accounts.id.initialize({
+        client_id: CONFIG.GOOGLE_CLIENT_ID,
+        callback: handleCredentialResponse
+      });
+
+      const buttonDiv = document.getElementById('googleSignIn');
+      if (buttonDiv) {
+        google.accounts.id.renderButton(
+          buttonDiv,
+          { theme: 'outline', size: 'large', width: 300 }
+        );
+      }
+    } catch (error) {
+      console.error('Google Sign-In initialization error:', error);
+    }
   }
 
   /**
@@ -105,15 +134,7 @@ class AuthManager {
     // Update user info display
     this.updateUserDisplay();
 
-    // Hide admin-only tabs if not admin
-    if (!this.isAdmin) {
-      this.hideAdminTabs();
-    }
-
-    // Trigger initial data load (will be handled by app.js)
-    if (window.app && typeof window.app.init === 'function') {
-      window.app.init();
-    }
+    // Note: app.js will handle tab initialization and data loading
   }
 
   /**
@@ -123,13 +144,11 @@ class AuthManager {
     if (!this.currentUser) return;
 
     const userNameElement = document.getElementById('userName');
-    const userEmailElement = document.getElementById('userEmail');
-    const userPictureElement = document.getElementById('userPicture');
+    const userPhotoElement = document.getElementById('userPhoto');
 
     if (userNameElement) userNameElement.textContent = this.currentUser.name || '';
-    if (userEmailElement) userEmailElement.textContent = this.currentUser.email || '';
-    if (userPictureElement && this.currentUser.picture) {
-      userPictureElement.src = this.currentUser.picture;
+    if (userPhotoElement && this.currentUser.picture) {
+      userPhotoElement.src = this.currentUser.picture;
     }
   }
 
@@ -138,9 +157,9 @@ class AuthManager {
    */
   hideAdminTabs() {
     // Rentabilité and Évolution tabs are admin-only
-    const adminTabs = document.querySelectorAll('[data-admin-only="true"]');
+    const adminTabs = document.querySelectorAll('.tab.admin-only');
     adminTabs.forEach(tab => {
-      tab.style.display = 'none';
+      tab.classList.add('hidden');
     });
   }
 
