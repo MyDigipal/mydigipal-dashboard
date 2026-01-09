@@ -5,633 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MyDigipal Dashboard</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23211F54'/%3E%3Ctext x='50' y='68' font-size='50' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'%3EM%3C/text%3E%3C/svg%3E">
+
+    <!-- External CSS -->
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- External Libraries -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; 
-            background: #EFF0F6; 
-            color: #211F54;
-            min-height: 100vh;
-        }
-        
-        /* Animations */
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-        @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-        }
-        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
-        .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; }
-        
-        /* Login Screen */
-        .login-screen {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(-45deg, #211F54, #0B6CD9, #11845B, #211F54);
-            background-size: 400% 400%;
-            animation: gradientShift 15s ease infinite;
-        }
-        .login-box {
-            background: white;
-            padding: 3rem;
-            border-radius: 20px;
-            text-align: center;
-            box-shadow: 0 25px 80px rgba(0,0,0,0.4);
-            max-width: 400px;
-            animation: fadeInUp 0.6s ease-out;
-        }
-        .login-box h1 { color: #211F54; margin-bottom: 0.5rem; font-size: 1.75rem; }
-        .login-box p { color: #666; margin-bottom: 2rem; }
-        .login-box .logo { 
-            font-size: 3.5rem; 
-            margin-bottom: 1rem;
-            animation: pulse 2s ease-in-out infinite;
-        }
-        .login-error {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-top: 1rem;
-            display: none;
-        }
-        
-        /* Dashboard (hidden by default) */
-        .dashboard { display: none; }
-        .dashboard.visible { display: block; animation: fadeIn 0.4s ease-out; }
-        
-        .header {
-            background: linear-gradient(135deg, #211F54 0%, #1a1840 50%, #211F54 100%);
-            background-size: 200% 200%;
-            animation: gradientShift 8s ease infinite;
-            color: white;
-            padding: 1.25rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            box-shadow: 0 4px 20px rgba(33, 31, 84, 0.3);
-        }
-        .header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.5px; }
-        .header .subtitle { opacity: 0.8; font-size: 0.85rem; font-weight: 400; }
-        .header .user-info {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-        .header .user-info img {
-            width: 36px;
-            height: 36px;
-            border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.3);
-            transition: transform 0.2s, border-color 0.2s;
-        }
-        .header .user-info img:hover { transform: scale(1.1); border-color: rgba(255,255,255,0.6); }
-        .header .logout-btn {
-            background: rgba(255,255,255,0.15);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.2);
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-        }
-        .header .logout-btn:hover { 
-            background: rgba(255,255,255,0.25); 
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-        
-        /* Date Filter */
-        .date-filter-bar {
-            background: white;
-            padding: 0.75rem 2rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            flex-wrap: wrap;
-            border-bottom: 1px solid #e5e7eb;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        }
-        .date-filter-bar label {
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: #211F54;
-        }
-        .date-preset {
-            padding: 0.4rem 0.75rem;
-            border: 1px solid #e5e7eb;
-            border-radius: 8px;
-            background: white;
-            cursor: pointer;
-            font-size: 0.8rem;
-            transition: all 0.2s;
-            font-weight: 500;
-        }
-        .date-preset:hover { background: #f3f4f6; transform: translateY(-1px); }
-        .date-preset.active { 
-            background: linear-gradient(135deg, #0B6CD9, #0958b3);
-            color: white; 
-            border-color: #0B6CD9;
-            box-shadow: 0 2px 8px rgba(11, 108, 217, 0.3);
-        }
-        .date-input {
-            padding: 0.5rem;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            font-size: 0.85rem;
-        }
-        .date-range-inputs {
-            display: none;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        .date-range-inputs.visible { display: flex; }
-        .apply-btn {
-            padding: 0.5rem 1rem;
-            background: linear-gradient(135deg, #11845B, #0d6b4a);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-        }
-        .apply-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(17, 132, 91, 0.3); }
-        .current-period {
-            margin-left: auto;
-            font-size: 0.85rem;
-            color: #211F54;
-            background: linear-gradient(135deg, #EFF0F6, #e8e9f3);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            font-weight: 600;
-        }
-        
-        .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
-        
-        /* KPI Cards */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        .kpi-grid.hidden { display: none; }
-        .kpi-card {
-            background: white;
-            border-radius: 16px;
-            padding: 1.25rem;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-            transition: all 0.3s ease;
-            animation: fadeInUp 0.5s ease-out backwards;
-            border: 1px solid rgba(0,0,0,0.04);
-        }
-        .kpi-card:nth-child(1) { animation-delay: 0.1s; }
-        .kpi-card:nth-child(2) { animation-delay: 0.15s; }
-        .kpi-card:nth-child(3) { animation-delay: 0.2s; }
-        .kpi-card:nth-child(4) { animation-delay: 0.25s; }
-        .kpi-card:hover { 
-            transform: translateY(-4px); 
-            box-shadow: 0 12px 32px rgba(0,0,0,0.12);
-        }
-        .kpi-card .label { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; font-weight: 500; }
-        .kpi-card .value { font-size: 1.75rem; font-weight: 700; }
-        .kpi-card .value.green { color: #11845B; }
-        .kpi-card .value.blue { color: #0B6CD9; }
-        .kpi-card .value.purple { color: #211F54; }
-        .kpi-card .value.orange { color: #D5691B; }
-        .kpi-card .value.red { color: #dc2626; }
-        
-        /* Tabs */
-        .tabs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1.5rem;
-            flex-wrap: wrap;
-        }
-        .tab {
-            padding: 0.75rem 1.25rem;
-            border-radius: 10px;
-            border: none;
-            background: white;
-            color: #666;
-            cursor: pointer;
-            font-size: 0.9rem;
-            font-weight: 500;
-            transition: all 0.25s ease;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
-        }
-        .tab:hover { 
-            background: #f0f1f8; 
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-        .tab.active { 
-            background: linear-gradient(135deg, #0B6CD9, #0958b3);
-            color: white;
-            box-shadow: 0 4px 16px rgba(11, 108, 217, 0.35);
-        }
-        .tab.hidden { display: none; }
-        
-        /* Content panels */
-        .panel {
-            background: white;
-            border-radius: 16px;
-            padding: 1.5rem;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.06);
-            display: none;
-            border: 1px solid rgba(0,0,0,0.04);
-        }
-        .panel.active { display: block; animation: fadeIn 0.3s ease-out; }
-        .panel h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #211F54; font-weight: 700; }
-        .panel h3 { font-size: 1rem; margin: 1.5rem 0 1rem; color: #666; font-weight: 600; }
-        
-        /* Toggle Switch - Modern Design */
-        .filter-toggle {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem 1rem;
-            background: white;
-            border-radius: 50px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            cursor: pointer;
-            transition: all 0.2s;
-            margin-bottom: 1.5rem;
-            border: 1px solid #e5e7eb;
-        }
-        .filter-toggle:hover {
-            box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-            transform: translateY(-1px);
-        }
-        .filter-toggle.active {
-            background: linear-gradient(135deg, #211F54, #1a1840);
-            border-color: #211F54;
-        }
-        .filter-toggle.active .filter-toggle-label { color: white; }
-        .filter-toggle-switch {
-            position: relative;
-            width: 44px;
-            height: 24px;
-            background: #e5e7eb;
-            border-radius: 12px;
-            transition: all 0.3s ease;
-        }
-        .filter-toggle.active .filter-toggle-switch {
-            background: #0B6CD9;
-        }
-        .filter-toggle-switch::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
-        .filter-toggle.active .filter-toggle-switch::after {
-            left: 22px;
-        }
-        .filter-toggle-label {
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: #211F54;
-            user-select: none;
-        }
-        .filter-toggle-icon {
-            font-size: 1rem;
-        }
-        
-        /* Hide default checkbox */
-        .filter-toggle input[type="checkbox"] {
-            display: none;
-        }
-        
-        /* Legacy filter controls (for planning tab) */
-        .filter-controls {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 1rem;
-            padding: 0.75rem 1rem;
-            background: linear-gradient(135deg, #f8f9fc, #f3f4f6);
-            border-radius: 12px;
-        }
-        .filter-controls label {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.9rem;
-            cursor: pointer;
-            font-weight: 500;
-        }
-        .filter-controls select {
-            padding: 0.5rem 1rem;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 0.9rem;
-            background: white;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .filter-controls select:hover { border-color: #0B6CD9; }
-        .filter-controls select:focus { outline: none; border-color: #0B6CD9; box-shadow: 0 0 0 3px rgba(11,108,217,0.1); }
-        
-        /* Client selector */
-        .client-selector {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-            padding: 1rem;
-            background: linear-gradient(135deg, #f8f9fc, #f3f4f6);
-            border-radius: 12px;
-        }
-        .client-selector label {
-            font-weight: 600;
-            font-size: 0.9rem;
-            color: #211F54;
-        }
-        .client-selector select {
-            flex: 1;
-            max-width: 400px;
-            padding: 0.75rem 1rem;
-            border: 2px solid #e5e7eb;
-            border-radius: 10px;
-            font-size: 1rem;
-            background: white;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .client-selector select:hover { border-color: #0B6CD9; }
-        .client-selector select:focus {
-            outline: none;
-            border-color: #0B6CD9;
-            box-shadow: 0 0 0 3px rgba(11,108,217,0.1);
-        }
-        .client-total-hours {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #0B6CD9;
-            margin-left: auto;
-            background: rgba(11,108,217,0.1);
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-        }
-        
-        /* Charts grid for client detail */
-        .charts-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-        }
-        .charts-grid .chart-box {
-            background: linear-gradient(135deg, #fafafa, #f5f5f7);
-            border-radius: 12px;
-            padding: 1.25rem;
-            border: 1px solid rgba(0,0,0,0.04);
-        }
-        .charts-grid .chart-box h4 {
-            font-size: 0.9rem;
-            color: #666;
-            margin-bottom: 1rem;
-            font-weight: 600;
-        }
-        
-        /* Tables */
-        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        th { 
-            text-align: left; 
-            padding: 0.85rem; 
-            background: linear-gradient(135deg, #EFF0F6, #e8e9f3);
-            font-weight: 600;
-            color: #211F54;
-        }
-        th:first-child { border-radius: 8px 0 0 8px; }
-        th:last-child { border-radius: 0 8px 8px 0; }
-        td { padding: 0.85rem; border-bottom: 1px solid #f0f0f0; }
-        tr { transition: all 0.2s; }
-        tr:hover { background: #f9fafc; }
-        tr.total-row { 
-            background: linear-gradient(135deg, #211F54, #1a1840) !important; 
-            color: white; 
-            font-weight: 600; 
-        }
-        tr.total-row td { border-bottom: none; }
-        tr.total-row td:first-child { border-radius: 8px 0 0 8px; }
-        tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
-        .text-right { text-align: right; }
-        .text-green { color: #11845B; font-weight: 600; }
-        .text-red { color: #dc2626; }
-        .text-blue { color: #0B6CD9; }
-        
-        /* Badges */
-        .badge {
-            display: inline-block;
-            padding: 0.3rem 0.6rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        .badge.high { background: linear-gradient(135deg, #dcfce7, #d1fae5); color: #166534; }
-        .badge.medium { background: linear-gradient(135deg, #fef3c7, #fde68a); color: #92400e; }
-        .badge.low { background: linear-gradient(135deg, #fee2e2, #fecaca); color: #991b1b; }
-        
-        /* Status badges for planning */
-        .status-badge {
-            display: inline-block;
-            padding: 0.3rem 0.85rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-        .status-badge.ok { background: linear-gradient(135deg, #dcfce7, #d1fae5); color: #166534; }
-        .status-badge.warning { background: linear-gradient(135deg, #fef3c7, #fde68a); color: #92400e; }
-        .status-badge.exceeded { background: linear-gradient(135deg, #fee2e2, #fecaca); color: #991b1b; }
-        
-        /* Progress bar */
-        .progress-bar-container {
-            width: 100%;
-            height: 26px;
-            background: #e5e7eb;
-            border-radius: 13px;
-            overflow: hidden;
-            position: relative;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.06);
-        }
-        .progress-bar {
-            height: 100%;
-            border-radius: 13px;
-            transition: width 0.5s ease;
-        }
-        .progress-bar.ok { background: linear-gradient(90deg, #11845B, #22c55e); }
-        .progress-bar.warning { background: linear-gradient(90deg, #D5691B, #f59e0b); }
-        .progress-bar.exceeded { background: linear-gradient(90deg, #dc2626, #ef4444); }
-        .progress-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 0.75rem;
-            font-weight: 700;
-            color: #211F54;
-            text-shadow: 0 1px 2px rgba(255,255,255,0.8);
-        }
-        .pace-marker {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: #211F54;
-            opacity: 0.8;
-            box-shadow: 0 0 4px rgba(0,0,0,0.3);
-        }
-        
-        /* Planning card */
-        .planning-card {
-            background: white;
-            border-radius: 16px;
-            padding: 1.25rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-            border-left: 5px solid #0B6CD9;
-            transition: all 0.3s ease;
-            animation: fadeInUp 0.4s ease-out backwards;
-        }
-        .planning-card:hover {
-            transform: translateX(4px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
-        }
-        .planning-card.warning { border-left-color: #D5691B; }
-        .planning-card.exceeded { border-left-color: #dc2626; }
-        .planning-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-        .planning-card-header h4 {
-            font-size: 1rem;
-            font-weight: 700;
-            color: #211F54;
-        }
-        .planning-card-stats {
-            display: flex;
-            gap: 1.5rem;
-            margin-bottom: 0.75rem;
-            font-size: 0.9rem;
-        }
-        .planning-card-employees {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-            margin-top: 0.75rem;
-        }
-        .employee-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.35rem 0.65rem;
-            background: linear-gradient(135deg, #f3f4f6, #e9eaef);
-            border-radius: 6px;
-            font-size: 0.8rem;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .employee-chip:hover { transform: scale(1.05); }
-        .employee-chip .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-        }
-        
-        /* Planning summary */
-        .planning-summary {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-            margin-bottom: 1.5rem;
-        }
-        .planning-summary-card {
-            background: white;
-            border-radius: 14px;
-            padding: 1.25rem;
-            text-align: center;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
-            transition: all 0.3s ease;
-            border: 1px solid rgba(0,0,0,0.04);
-        }
-        .planning-summary-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
-        .planning-summary-card .label { font-size: 0.8rem; color: #666; margin-bottom: 0.35rem; font-weight: 500; }
-        .planning-summary-card .value { font-size: 1.6rem; font-weight: 700; }
-        
-        /* Charts */
-        .chart-container { position: relative; height: 400px; margin-bottom: 1.5rem; }
-        .chart-container.tall { height: 500px; }
-        .chart-container.medium { height: 350px; }
-        
-        /* Loading */
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 3rem;
-            color: #666;
-        }
-        .spinner {
-            width: 28px;
-            height: 28px;
-            border: 3px solid #EFF0F6;
-            border-top-color: #0B6CD9;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 0.75rem;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: #666;
-        }
-        .empty-state .icon { font-size: 3.5rem; margin-bottom: 1rem; }
-        
-        /* Responsive */
-        @media (max-width: 1024px) {
-            .charts-grid { grid-template-columns: 1fr; }
-            .planning-summary { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 768px) {
-            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-            .date-filter-bar { padding: 0.75rem 1rem; }
-            .planning-summary { grid-template-columns: 1fr 1fr; }
-        }
-    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
     <!-- Login Screen -->
@@ -657,33 +39,30 @@
             <div class="user-info">
                 <span id="userName"></span>
                 <img id="userPhoto" src="" alt="">
-                <button class="logout-btn" onclick="logout()">Déconnexion</button>
+                <button class="logout-btn" id="logoutBtn">Déconnexion</button>
             </div>
         </div>
-        
+
         <!-- Date Filter Bar -->
         <div class="date-filter-bar" id="dateFilterBar">
             <label>📅 Période :</label>
             <button class="date-preset" data-preset="all">Tout</button>
-            <button class="date-preset active" data-preset="lastmonth">Mois dernier</button>
-            <button class="date-preset" data-preset="30d">30 jours</button>
-            <button class="date-preset" data-preset="3m">3 mois</button>
-            <button class="date-preset" data-preset="6m">6 mois</button>
-            <button class="date-preset" data-preset="12m">12 mois</button>
-            <button class="date-preset" data-preset="2025">2025</button>
-            <button class="date-preset" data-preset="custom">Personnalisé</button>
+            <button class="date-preset active" data-preset="7days">7 jours</button>
+            <button class="date-preset" data-preset="30days">30 jours</button>
+            <button class="date-preset" data-preset="90days">90 jours</button>
+            <button class="date-preset" data-preset="ytd">YTD</button>
             <div class="date-range-inputs" id="customDateRange">
                 <input type="date" class="date-input" id="dateFrom">
                 <span>→</span>
                 <input type="date" class="date-input" id="dateTo">
-                <button class="apply-btn" onclick="applyCustomDates()">Appliquer</button>
+                <button class="apply-btn" id="applyDateRange">Appliquer</button>
             </div>
-            <div class="current-period" id="currentPeriod">Mois dernier</div>
+            <div class="current-period" id="currentPeriod">7 derniers jours</div>
         </div>
-        
+
         <div class="container">
-            <!-- KPI Cards -->
-            <div class="kpi-grid" id="kpiGrid">
+            <!-- KPI Cards (Admin only) -->
+            <div class="kpi-grid hidden" id="kpiGrid">
                 <div class="kpi-card">
                     <div class="label">Revenue Total</div>
                     <div class="value blue" id="kpiRevenue">-</div>
@@ -697,30 +76,30 @@
                     <div class="value green" id="kpiProfit">-</div>
                 </div>
                 <div class="kpi-card">
-                    <div class="label">Heures Travaillées</div>
-                    <div class="value purple" id="kpiHours">-</div>
+                    <div class="label">Marge Moyenne</div>
+                    <div class="value purple" id="kpiMargin">-</div>
                 </div>
             </div>
-            
+
             <!-- Tabs -->
             <div class="tabs" id="tabsContainer">
-                <button class="tab admin-only" data-tab="clients">📊 Rentabilité</button>
-                <button class="tab admin-only" data-tab="monthly">📈 Évolution</button>
-                <button class="tab" data-tab="hours">⏱️ Heures</button>
-                <button class="tab" data-tab="clientdetail">🏢 Client</button>
+                <button class="tab" data-tab="rentabilite">📊 Rentabilité</button>
+                <button class="tab" data-tab="evolution">📈 Évolution</button>
+                <button class="tab" data-tab="heures">⏱️ Heures</button>
+                <button class="tab" data-tab="client">🏢 Client</button>
                 <button class="tab" data-tab="planning">📋 Planning</button>
             </div>
-            
-            <!-- Clients Panel (Admin only) -->
-            <div class="panel" id="panel-clients">
-                <!-- Toggle to include Paul's MyDigipal hours -->
-                <label class="filter-toggle" id="filterTogglePaul" onclick="toggleIncludePaulMyDigipal()">
-                    <input type="checkbox" id="includePaulMyDigipal">
+
+            <!-- Rentabilité Panel (Admin only) -->
+            <div class="panel" id="rentabilitePanel">
+                <!-- Toggle Paul filter -->
+                <label class="filter-toggle" id="filterTogglePaul">
+                    <input type="checkbox" id="includePaulCheckbox">
                     <span class="filter-toggle-icon">👤</span>
                     <span class="filter-toggle-label">Inclure heures Paul sur MyDigipal</span>
                     <span class="filter-toggle-switch"></span>
                 </label>
-                
+
                 <h2>Rentabilité par Client</h2>
                 <div class="chart-container">
                     <canvas id="clientsChart"></canvas>
@@ -740,61 +119,45 @@
                     <tfoot id="clientsTableFooter"></tfoot>
                 </table>
             </div>
-            
-            <!-- Monthly Panel (Admin only) -->
-            <div class="panel" id="panel-monthly">
-                <!-- Toggle to include Paul's MyDigipal hours -->
-                <label class="filter-toggle" id="filterTogglePaulMonthly" onclick="toggleIncludePaulMyDigipalMonthly()">
-                    <input type="checkbox" id="includePaulMyDigipalMonthly">
-                    <span class="filter-toggle-icon">👤</span>
-                    <span class="filter-toggle-label">Inclure heures Paul sur MyDigipal</span>
-                    <span class="filter-toggle-switch"></span>
-                </label>
-                
+
+            <!-- Évolution Panel (Admin only) -->
+            <div class="panel" id="evolutionPanel">
                 <h2>Évolution Mensuelle</h2>
                 <div class="chart-container">
                     <canvas id="monthlyChart"></canvas>
                 </div>
-                <div class="chart-container" style="height: 250px;">
-                    <canvas id="hoursChart"></canvas>
-                </div>
             </div>
-            
-            <!-- Hours Panel -->
-            <div class="panel" id="panel-hours">
+
+            <!-- Heures Panel -->
+            <div class="panel" id="heuresPanel">
                 <h2>⏱️ Répartition des Heures</h2>
-                
-                <!-- Modern Toggle Switch -->
-                <label class="filter-toggle" id="filterToggle" onclick="toggleInternalFilter()">
-                    <input type="checkbox" id="excludeInternal">
+
+                <!-- Toggle internal filter -->
+                <label class="filter-toggle" id="filterToggleInternal">
+                    <input type="checkbox" id="excludeInternalCheckbox">
                     <span class="filter-toggle-icon">🏢</span>
                     <span class="filter-toggle-label">Masquer travail interne</span>
                     <span class="filter-toggle-switch"></span>
                 </label>
-                
-                <h3>Par Employé (split par client)</h3>
+
+                <h3>Par Employé</h3>
                 <div class="chart-container tall">
-                    <canvas id="hoursByEmployeeChart"></canvas>
-                </div>
-                
-                <h3>Par Client (split par employé)</h3>
-                <div class="chart-container tall">
-                    <canvas id="hoursByClientChart"></canvas>
+                    <canvas id="employeesChart"></canvas>
                 </div>
             </div>
-            
+
             <!-- Client Detail Panel -->
-            <div class="panel" id="panel-clientdetail">
+            <div class="panel" id="clientPanel">
                 <h2>🏢 Détail par Client</h2>
-                
+
                 <div class="client-selector">
                     <label>Sélectionner un client :</label>
-                    <select id="clientSelect" onchange="loadClientTimeline()">
+                    <select id="clientSelect">
                         <option value="">-- Choisir un client --</option>
                     </select>
                     <div class="client-total-hours" id="clientTotalHours"></div>
                 </div>
-                
+
                 <div id="clientDetailContent" style="display: none;">
                     <div class="charts-grid">
                         <div class="chart-box">
@@ -803,14 +166,8 @@
                                 <canvas id="clientTimelineChart"></canvas>
                             </div>
                         </div>
-                        <div class="chart-box">
-                            <h4>👥 Répartition par employé</h4>
-                            <div class="chart-container medium">
-                                <canvas id="clientEmployeesChart"></canvas>
-                            </div>
-                        </div>
                     </div>
-                    
+
                     <h3>Détail par employé</h3>
                     <table id="clientEmployeesTable">
                         <thead>
@@ -823,46 +180,46 @@
                         <tbody></tbody>
                     </table>
                 </div>
-                
+
                 <div id="clientDetailEmpty" class="empty-state">
                     <div class="icon">🏢</div>
                     <p>Sélectionnez un client pour voir le détail des heures travaillées</p>
                 </div>
             </div>
-            
+
             <!-- Planning Panel -->
-            <div class="panel" id="panel-planning">
+            <div class="panel" id="planningPanel">
                 <h2>📋 Planning - Budget vs Réel</h2>
-                
+
                 <div class="filter-controls">
                     <label>
                         <strong>Mois :</strong>
-                        <select id="planningMonth" onchange="loadBudgetProgress()">
+                        <select id="planningMonthSelect">
                             <option value="">Chargement...</option>
                         </select>
                     </label>
                 </div>
-                
+
                 <!-- Summary KPIs -->
                 <div class="planning-summary" id="planningSummary">
                     <div class="planning-summary-card">
-                        <div class="label">Progression du mois</div>
-                        <div class="value blue" id="planningMonthProgress">-</div>
+                        <div class="label">Budget Total</div>
+                        <div class="value blue" id="planningTotalBudget">-</div>
                     </div>
                     <div class="planning-summary-card">
-                        <div class="label">Clients avec budget</div>
-                        <div class="value purple" id="planningClientCount">-</div>
+                        <div class="label">Réel Total</div>
+                        <div class="value purple" id="planningTotalActual">-</div>
                     </div>
                     <div class="planning-summary-card">
-                        <div class="label">En alerte</div>
-                        <div class="value orange" id="planningWarningCount">-</div>
+                        <div class="label">Restant</div>
+                        <div class="value orange" id="planningRemaining">-</div>
                     </div>
                     <div class="planning-summary-card">
-                        <div class="label">Dépassés</div>
-                        <div class="value red" id="planningExceededCount">-</div>
+                        <div class="label">Progression Mois</div>
+                        <div class="value green" id="planningMonthProgress">-</div>
                     </div>
                 </div>
-                
+
                 <!-- Client budget cards -->
                 <div id="planningCards">
                     <div class="loading">
@@ -870,7 +227,7 @@
                         Chargement des données...
                     </div>
                 </div>
-                
+
                 <div id="planningEmpty" class="empty-state" style="display: none;">
                     <div class="icon">📋</div>
                     <p>Aucun budget défini pour ce mois.<br>Ajoutez des budgets dans BigQuery pour les voir ici.</p>
@@ -879,916 +236,17 @@
         </div>
     </div>
 
+    <!-- Application Scripts (loaded in order) -->
     <script>
         // Disable datalabels globally - only enable on specific charts
         Chart.defaults.plugins.datalabels = { display: false };
-        
-        // ============== CONFIGURATION ==============
-        const API_URL = 'https://dashboard-api-53817551397.us-central1.run.app';
-        const GOOGLE_CLIENT_ID = '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com';
-        
-        // Access control: Admin emails see everything, others see limited tabs
-        const ADMIN_EMAILS = ['paul@mydigipal.com'];
-        const ALLOWED_EMAILS = [
-            'paul@mydigipal.com',
-            'jordan@mydigipal.com',
-            'juliette@mydigipal.com',
-            'alexandre@mydigipal.com',
-            'alizee@mydigipal.com',
-            'heather@mydigipal.com'
-        ];
-        
-        // Internal client to exclude from hours breakdown charts
-        const INTERNAL_CLIENT = 'MyDigipal';
-        
-        // Employee color palette (consistent colors)
-        const EMPLOYEE_COLORS = {
-            'Alexandre': '#0B6CD9',
-            'Jordan': '#11845B',
-            'Juliette': '#D5691B',
-            'Paul': '#211F54',
-            'Alizée': '#9333ea',
-            'Heather': '#dc2626',
-            'Alizéa': '#9333ea',
-            'Aliéza': '#9333ea'
-        };
-        const DEFAULT_COLORS = [
-            '#0B6CD9', '#11845B', '#D5691B', '#211F54', '#9333ea', 
-            '#dc2626', '#0891b2', '#ca8a04', '#be185d', '#4f46e5',
-            '#059669', '#ea580c', '#7c3aed', '#db2777', '#2563eb'
-        ];
-        
-        // Client color palette (for employee breakdown chart)
-        const CLIENT_COLORS = [
-            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-            '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-            '#14b8a6', '#eab308', '#e11d48', '#a855f7', '#0ea5e9',
-            '#22c55e', '#fbbf24', '#f43f5e', '#a78bfa', '#2dd4bf'
-        ];
-        
-        // ============== DATE FORMATTING ==============
-        const MONTH_NAMES_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
-                                'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-        
-        function formatMonthFR(monthStr) {
-            if (!monthStr) return '';
-            const [year, month] = monthStr.split('-');
-            const monthIndex = parseInt(month, 10) - 1;
-            const shortYear = year.slice(-2);
-            return `${MONTH_NAMES_FR[monthIndex]} ${shortYear}`;
-        }
-        
-        function formatDateFR(dateStr) {
-            if (!dateStr) return '';
-            const [year, month, day] = dateStr.split('-');
-            return `${parseInt(day, 10)}/${month}`;
-        }
-        
-        // ============== DATE FILTER STATE ==============
-        let dateFrom = null;
-        let dateTo = null;
-        
-        // ============== AUTHENTICATION ==============
-        let currentUser = null;
-        let isAdmin = false;
-        
-        function handleCredentialResponse(response) {
-            const payload = parseJwt(response.credential);
-            
-            if (ALLOWED_EMAILS.includes(payload.email)) {
-                currentUser = payload;
-                isAdmin = ADMIN_EMAILS.includes(payload.email);
-                sessionStorage.setItem('user', JSON.stringify(payload));
-                sessionStorage.setItem('isAdmin', isAdmin);
-                showDashboard();
-            } else {
-                document.getElementById('loginError').style.display = 'block';
-                console.log('Access denied for:', payload.email);
-            }
-        }
-        
-        function parseJwt(token) {
-            const base64Url = token.split('.')[1];
-            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => 
-                '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-            ).join(''));
-            return JSON.parse(jsonPayload);
-        }
-        
-        function applyAccessControl() {
-            document.querySelectorAll('.tab.admin-only').forEach(tab => {
-                tab.classList.toggle('hidden', !isAdmin);
-            });
-            
-            if (!isAdmin) {
-                document.getElementById('kpiGrid').classList.add('hidden');
-            }
-            
-            const defaultTab = isAdmin ? 'clients' : 'hours';
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            
-            const activeTab = document.querySelector(`.tab[data-tab="${defaultTab}"]`);
-            if (activeTab) {
-                activeTab.classList.add('active');
-                document.getElementById('panel-' + defaultTab).classList.add('active');
-            }
-        }
-        
-        function showDashboard() {
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('dashboard').classList.add('visible');
-            document.getElementById('userName').textContent = currentUser.name;
-            document.getElementById('userPhoto').src = currentUser.picture;
-            
-            applyAccessControl();
-            setDatePreset('lastmonth');
-            loadPlanningMonths();
-        }
-        
-        function logout() {
-            sessionStorage.removeItem('user');
-            sessionStorage.removeItem('isAdmin');
-            currentUser = null;
-            isAdmin = false;
-            location.reload();
-        }
-        
-        function checkExistingSession() {
-            const stored = sessionStorage.getItem('user');
-            const storedAdmin = sessionStorage.getItem('isAdmin');
-            if (stored) {
-                currentUser = JSON.parse(stored);
-                isAdmin = storedAdmin === 'true';
-                if (ALLOWED_EMAILS.includes(currentUser.email)) {
-                    showDashboard();
-                    return true;
-                }
-            }
-            return false;
-        }
-        
-        window.onload = function() {
-            if (checkExistingSession()) return;
-            
-            google.accounts.id.initialize({
-                client_id: GOOGLE_CLIENT_ID,
-                callback: handleCredentialResponse
-            });
-            google.accounts.id.renderButton(
-                document.getElementById('googleSignIn'),
-                { theme: 'outline', size: 'large', width: 300 }
-            );
-        };
-        
-        // ============== DATE FILTER ==============
-        function formatDateForAPI(date) {
-            return date.toISOString().split('T')[0];
-        }
-        
-        function getLastMonth() {
-            const today = new Date();
-            const year = today.getMonth() === 0 ? today.getFullYear() - 1 : today.getFullYear();
-            const month = today.getMonth() === 0 ? 11 : today.getMonth() - 1;
-            const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0);
-            return { firstDay, lastDay, monthName: MONTH_NAMES_FR[month], year };
-        }
-        
-        function setDatePreset(preset) {
-            const today = new Date();
-            const customRange = document.getElementById('customDateRange');
-            customRange.classList.remove('visible');
-            
-            switch(preset) {
-                case 'all':
-                    dateFrom = null;
-                    dateTo = null;
-                    document.getElementById('currentPeriod').textContent = 'Toutes les données';
-                    break;
-                case 'lastmonth':
-                    const lastMonth = getLastMonth();
-                    dateFrom = lastMonth.firstDay;
-                    dateTo = lastMonth.lastDay;
-                    document.getElementById('currentPeriod').textContent = `${lastMonth.monthName} ${lastMonth.year}`;
-                    break;
-                case '30d':
-                    dateFrom = new Date(today);
-                    dateFrom.setDate(dateFrom.getDate() - 30);
-                    dateTo = today;
-                    document.getElementById('currentPeriod').textContent = '30 derniers jours';
-                    break;
-                case '3m':
-                    dateFrom = new Date(today);
-                    dateFrom.setMonth(dateFrom.getMonth() - 3);
-                    dateTo = today;
-                    document.getElementById('currentPeriod').textContent = '3 derniers mois';
-                    break;
-                case '6m':
-                    dateFrom = new Date(today);
-                    dateFrom.setMonth(dateFrom.getMonth() - 6);
-                    dateTo = today;
-                    document.getElementById('currentPeriod').textContent = '6 derniers mois';
-                    break;
-                case '12m':
-                    dateFrom = new Date(today);
-                    dateFrom.setMonth(dateFrom.getMonth() - 12);
-                    dateTo = today;
-                    document.getElementById('currentPeriod').textContent = '12 derniers mois';
-                    break;
-                case '2025':
-                    dateFrom = new Date('2025-01-01');
-                    dateTo = new Date('2025-12-31');
-                    document.getElementById('currentPeriod').textContent = 'Année 2025';
-                    break;
-                case 'custom':
-                    customRange.classList.add('visible');
-                    return;
-            }
-            
-            document.querySelectorAll('.date-preset').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.preset === preset);
-            });
-            
-            init();
-        }
-        
-        function applyCustomDates() {
-            const fromInput = document.getElementById('dateFrom').value;
-            const toInput = document.getElementById('dateTo').value;
-            
-            if (!fromInput || !toInput) {
-                alert('Veuillez sélectionner les deux dates');
-                return;
-            }
-            
-            dateFrom = new Date(fromInput);
-            dateTo = new Date(toInput);
-            
-            document.getElementById('currentPeriod').textContent = `${fromInput} → ${toInput}`;
-            
-            document.querySelectorAll('.date-preset').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.preset === 'custom');
-            });
-            
-            init();
-        }
-        
-        document.querySelectorAll('.date-preset').forEach(btn => {
-            btn.addEventListener('click', () => setDatePreset(btn.dataset.preset));
-        });
-        
-        // ============== TOGGLE FILTERS ==============
-        function toggleIncludePaulMyDigipal() {
-            const checkbox = document.getElementById('includePaulMyDigipal');
-            const toggle = document.getElementById('filterTogglePaul');
-            checkbox.checked = !checkbox.checked;
-            toggle.classList.toggle('active', checkbox.checked);
-            // Sync with monthly toggle
-            document.getElementById('includePaulMyDigipalMonthly').checked = checkbox.checked;
-            document.getElementById('filterTogglePaulMonthly').classList.toggle('active', checkbox.checked);
-            loadClientsData();
-        }
-        
-        function toggleIncludePaulMyDigipalMonthly() {
-            const checkbox = document.getElementById('includePaulMyDigipalMonthly');
-            const toggle = document.getElementById('filterTogglePaulMonthly');
-            checkbox.checked = !checkbox.checked;
-            toggle.classList.toggle('active', checkbox.checked);
-            // Sync with clients toggle
-            document.getElementById('includePaulMyDigipal').checked = checkbox.checked;
-            document.getElementById('filterTogglePaul').classList.toggle('active', checkbox.checked);
-            loadMonthlyData();
-        }
-        
-        function toggleInternalFilter() {
-            const checkbox = document.getElementById('excludeInternal');
-            const toggle = document.getElementById('filterToggle');
-            checkbox.checked = !checkbox.checked;
-            toggle.classList.toggle('active', checkbox.checked);
-            renderHoursBreakdownCharts();
-        }
-        
-        // ============== DASHBOARD ==============
-        let clientsChart, monthlyChart, hoursChart;
-        let hoursByEmployeeChart, hoursByClientChart;
-        let clientTimelineChart, clientEmployeesChart;
-        let clientsData = [];
-        let monthlyData = [];
-        let employeesData = [];
-        let breakdownData = [];
-        let clientsWithHours = [];
-        
-        const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
-        const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
-        
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                if (tab.classList.contains('admin-only') && !isAdmin) return;
-                
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-                tab.classList.add('active');
-                document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
-                
-                const kpiGrid = document.getElementById('kpiGrid');
-                if (isAdmin && (tab.dataset.tab === 'clients' || tab.dataset.tab === 'monthly')) {
-                    kpiGrid.classList.remove('hidden');
-                } else {
-                    kpiGrid.classList.add('hidden');
-                }
-                
-                const dateFilterBar = document.getElementById('dateFilterBar');
-                dateFilterBar.style.display = tab.dataset.tab === 'planning' ? 'none' : 'flex';
-                
-                if (tab.dataset.tab === 'clientdetail') {
-                    loadClientsWithHours();
-                }
-                if (tab.dataset.tab === 'planning') {
-                    loadBudgetProgress();
-                }
-            });
-        });
-        
-        function getDateParams() {
-            let params = '';
-            if (dateFrom) params += `?date_from=${formatDateForAPI(dateFrom)}`;
-            if (dateTo) params += `${params ? '&' : '?'}date_to=${formatDateForAPI(dateTo)}`;
-            return params;
-        }
-        
-        async function fetchData(endpoint) {
-            try {
-                const params = getDateParams();
-                const res = await fetch(API_URL + endpoint + params);
-                if (!res.ok) throw new Error('API Error');
-                return await res.json();
-            } catch (e) {
-                console.error('Fetch error:', e);
-                return null;
-            }
-        }
-        
-        async function loadClientsData() {
-            // By default, Paul's MyDigipal hours are excluded
-            // If toggle is ON, include them (pass include_paul=true)
-            const includePaul = document.getElementById('includePaulMyDigipal').checked;
-            let params = getDateParams();
-            if (includePaul) {
-                params += (params ? '&' : '?') + 'include_paul=true';
-            }
-            try {
-                const res = await fetch(API_URL + '/api/clients' + params);
-                if (!res.ok) throw new Error('API Error');
-                clientsData = await res.json();
-                
-                const totals = clientsData.reduce((acc, c) => ({
-                    revenue: acc.revenue + (c.revenue || 0),
-                    cost: acc.cost + (c.cost || 0),
-                    hours: acc.hours + (c.hours || 0)
-                }), { revenue: 0, cost: 0, hours: 0 });
-                const totalProfit = totals.revenue - totals.cost;
-                
-                if (isAdmin) {
-                    document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
-                    document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
-                    document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
-                    document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
-                    renderClientsChart();
-                    renderClientsTable();
-                }
-            } catch (e) {
-                console.error('Error loading clients:', e);
-            }
-        }
-        
-        async function loadMonthlyData() {
-            const includePaul = document.getElementById('includePaulMyDigipalMonthly').checked;
-            let params = getDateParams();
-            if (includePaul) {
-                params += (params ? '&' : '?') + 'include_paul=true';
-            }
-            try {
-                const res = await fetch(API_URL + '/api/monthly' + params);
-                if (!res.ok) throw new Error('API Error');
-                monthlyData = await res.json();
-                renderMonthlyChart();
-            } catch (e) {
-                console.error('Error loading monthly:', e);
-            }
-        }
-        
-        async function init() {
-            if (isAdmin) {
-                document.getElementById('kpiRevenue').textContent = '...';
-                document.getElementById('kpiCost').textContent = '...';
-                document.getElementById('kpiProfit').textContent = '...';
-                document.getElementById('kpiHours').textContent = '...';
-            }
-            
-            document.getElementById('clientSelect').value = '';
-            document.getElementById('clientDetailContent').style.display = 'none';
-            document.getElementById('clientDetailEmpty').style.display = 'block';
-            document.getElementById('clientTotalHours').textContent = '';
-            
-            // Get toggle state to pass to API
-            const includePaul = document.getElementById('includePaulMyDigipal').checked;
-            let clientsParams = getDateParams();
-            let monthlyParams = getDateParams();
-            if (includePaul) {
-                clientsParams += (clientsParams ? '&' : '?') + 'include_paul=true';
-                monthlyParams += (monthlyParams ? '&' : '?') + 'include_paul=true';
-            }
-            
-            // Fetch data with proper params
-            const [clientsRes, monthlyRes, employeesRes, breakdownRes] = await Promise.all([
-                fetch(API_URL + '/api/clients' + clientsParams).then(r => r.json()).catch(() => null),
-                fetch(API_URL + '/api/monthly' + monthlyParams).then(r => r.json()).catch(() => null),
-                fetchData('/api/employees'),
-                fetchData('/api/employees-breakdown')
-            ]);
-            
-            clientsData = clientsRes;
-            monthlyData = monthlyRes;
-            employeesData = employeesRes;
-            breakdownData = breakdownRes;
-            
-            if (!clientsData) return;
-            
-            const totals = clientsData.reduce((acc, c) => ({
-                revenue: acc.revenue + (c.revenue || 0),
-                cost: acc.cost + (c.cost || 0),
-                hours: acc.hours + (c.hours || 0)
-            }), { revenue: 0, cost: 0, hours: 0 });
-            
-            const totalProfit = totals.revenue - totals.cost;
-            
-            if (isAdmin) {
-                document.getElementById('kpiRevenue').textContent = formatCurrency(totals.revenue);
-                document.getElementById('kpiCost').textContent = formatCurrency(totals.cost);
-                document.getElementById('kpiProfit').textContent = formatCurrency(totalProfit);
-                document.getElementById('kpiHours').textContent = formatNumber(totals.hours) + 'h';
-                
-                renderClientsChart();
-                renderClientsTable();
-                renderMonthlyChart();
-            }
-            
-            renderHoursBreakdownCharts();
-            loadClientsWithHours();
-        }
-        
-        // ============== PLANNING TAB ==============
-        async function loadPlanningMonths() {
-            try {
-                const res = await fetch(API_URL + '/api/budget-months');
-                const months = await res.json();
-                
-                const select = document.getElementById('planningMonth');
-                const now = new Date();
-                const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-                const allMonths = [...new Set([currentMonth, ...months])].sort().reverse();
-                
-                select.innerHTML = allMonths.map(m => 
-                    `<option value="${m}" ${m === currentMonth ? 'selected' : ''}>${formatMonthFR(m)}</option>`
-                ).join('');
-                
-            } catch (e) {
-                console.error('Error loading planning months:', e);
-            }
-        }
-        
-        async function loadBudgetProgress() {
-            const month = document.getElementById('planningMonth').value;
-            if (!month) return;
-            
-            const cardsContainer = document.getElementById('planningCards');
-            cardsContainer.innerHTML = '<div class="loading"><div class="spinner"></div>Chargement des données...</div>';
-            
-            try {
-                const res = await fetch(API_URL + `/api/budget-progress?month=${month}`);
-                const data = await res.json();
-                
-                if (!data.clients || data.clients.length === 0) {
-                    cardsContainer.innerHTML = '';
-                    document.getElementById('planningEmpty').style.display = 'block';
-                    document.getElementById('planningSummary').style.display = 'none';
-                    return;
-                }
-                
-                document.getElementById('planningEmpty').style.display = 'none';
-                document.getElementById('planningSummary').style.display = 'grid';
-                
-                document.getElementById('planningMonthProgress').textContent = `${data.month_progress_pct}%`;
-                document.getElementById('planningClientCount').textContent = data.clients.length;
-                document.getElementById('planningWarningCount').textContent = 
-                    data.clients.filter(c => c.status === 'warning').length;
-                document.getElementById('planningExceededCount').textContent = 
-                    data.clients.filter(c => c.status === 'exceeded').length;
-                
-                cardsContainer.innerHTML = data.clients.map((client, index) => {
-                    const progressWidth = Math.min(client.progress_pct, 100);
-                    const pacePosition = Math.min(data.month_progress_pct, 100);
-                    
-                    return `
-                        <div class="planning-card ${client.status}" style="animation-delay: ${index * 0.05}s">
-                            <div class="planning-card-header">
-                                <h4>${client.client_name}</h4>
-                                <span class="status-badge ${client.status}">
-                                    ${client.status === 'ok' ? '✓ En bonne voie' : 
-                                      client.status === 'warning' ? '⚠️ Attention' : 
-                                      '🚨 Dépassé'}
-                                </span>
-                            </div>
-                            
-                            <div class="planning-card-stats">
-                                <span><strong>Budget:</strong> ${client.budgeted_hours}h</span>
-                                <span><strong>Réel:</strong> ${client.actual_hours}h</span>
-                                <span><strong>Restant:</strong> ${client.remaining_hours}h</span>
-                                <span class="${client.pace_diff > 0 ? 'text-red' : 'text-green'}">
-                                    <strong>vs pace:</strong> ${client.pace_diff > 0 ? '+' : ''}${client.pace_diff}h
-                                </span>
-                            </div>
-                            
-                            <div class="progress-bar-container">
-                                <div class="progress-bar ${client.status}" style="width: ${progressWidth}%"></div>
-                                <div class="pace-marker" style="left: ${pacePosition}%" title="Position idéale: ${data.month_progress_pct}% du mois"></div>
-                                <span class="progress-text">${client.progress_pct}%</span>
-                            </div>
-                            
-                            ${client.employees && client.employees.length > 0 ? `
-                                <div class="planning-card-employees">
-                                    ${client.employees.map((emp, idx) => `
-                                        <span class="employee-chip">
-                                            <span class="dot" style="background: ${EMPLOYEE_COLORS[emp.employee_name] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]}"></span>
-                                            ${emp.employee_name}: ${emp.hours}h
-                                        </span>
-                                    `).join('')}
-                                </div>
-                            ` : ''}
-                        </div>
-                    `;
-                }).join('');
-                
-            } catch (e) {
-                console.error('Error loading budget progress:', e);
-                cardsContainer.innerHTML = '<div class="empty-state"><div class="icon">❌</div><p>Erreur de chargement</p></div>';
-            }
-        }
-        
-        // ============== CLIENT DETAIL TAB ==============
-        async function loadClientsWithHours() {
-            clientsWithHours = await fetchData('/api/clients-with-hours');
-            if (!clientsWithHours) return;
-            
-            const select = document.getElementById('clientSelect');
-            const currentValue = select.value;
-            
-            select.innerHTML = '<option value="">-- Choisir un client --</option>' + 
-                clientsWithHours.map(c => 
-                    `<option value="${c.client_id}" ${c.client_id === currentValue ? 'selected' : ''}>
-                        ${c.client_name} (${c.total_hours}h)
-                    </option>`
-                ).join('');
-        }
-        
-        async function loadClientTimeline() {
-            const clientId = document.getElementById('clientSelect').value;
-            
-            if (!clientId) {
-                document.getElementById('clientDetailContent').style.display = 'none';
-                document.getElementById('clientDetailEmpty').style.display = 'block';
-                document.getElementById('clientTotalHours').textContent = '';
-                return;
-            }
-            
-            document.getElementById('clientDetailEmpty').style.display = 'none';
-            document.getElementById('clientDetailContent').style.display = 'block';
-            
-            const data = await fetchData(`/api/client-timeline/${clientId}`);
-            if (!data) return;
-            
-            const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
-            document.getElementById('clientTotalHours').textContent = `Total: ${totalHours.toFixed(1)}h`;
-            
-            renderClientTimelineChart(data);
-            renderClientEmployeesChart(data);
-            renderClientEmployeesTable(data);
-        }
-        
-        function renderClientTimelineChart(data) {
-            const ctx = document.getElementById('clientTimelineChart').getContext('2d');
-            
-            const dates = [...new Set(data.daily.map(d => d.date))].sort();
-            const employees = [...new Set(data.daily.map(d => d.employee_name))];
-            
-            const datasets = employees.map((empName, idx) => {
-                const empData = dates.map(date => {
-                    const entry = data.daily.find(d => d.date === date && d.employee_name === empName);
-                    return entry ? entry.hours : 0;
-                });
-                
-                return {
-                    label: empName,
-                    data: empData,
-                    backgroundColor: EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
-                };
-            });
-            
-            if (clientTimelineChart) clientTimelineChart.destroy();
-            clientTimelineChart = new Chart(ctx, {
-                type: 'bar',
-                data: { labels: dates.map(formatDateFR), datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
-                        datalabels: { display: false }
-                    },
-                    scales: {
-                        x: { stacked: true, ticks: { maxRotation: 45, minRotation: 45 } },
-                        y: { stacked: true, ticks: { callback: v => v + 'h' } }
-                    }
-                }
-            });
-        }
-        
-        function renderClientEmployeesChart(data) {
-            const ctx = document.getElementById('clientEmployeesChart').getContext('2d');
-            const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
-            const colors = sortedTotals.map((t, idx) => 
-                EMPLOYEE_COLORS[t.employee_name] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length]
-            );
-            
-            if (clientEmployeesChart) clientEmployeesChart.destroy();
-            clientEmployeesChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: sortedTotals.map(t => t.employee_name),
-                    datasets: [{ data: sortedTotals.map(t => t.total_hours), backgroundColor: colors }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: {
-                            callbacks: {
-                                label: ctx => {
-                                    const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
-                                    const pct = Math.round(ctx.raw / total * 100);
-                                    return `${ctx.label}: ${ctx.raw}h (${pct}%)`;
-                                }
-                            }
-                        },
-                        datalabels: { display: false }
-                    }
-                }
-            });
-        }
-        
-        function renderClientEmployeesTable(data) {
-            const tbody = document.querySelector('#clientEmployeesTable tbody');
-            const totalHours = data.totals.reduce((sum, t) => sum + t.total_hours, 0);
-            const sortedTotals = [...data.totals].sort((a, b) => b.total_hours - a.total_hours);
-            
-            tbody.innerHTML = sortedTotals.map(t => {
-                const pct = totalHours > 0 ? Math.round(t.total_hours / totalHours * 100) : 0;
-                const color = EMPLOYEE_COLORS[t.employee_name] || '#666';
-                return `
-                    <tr>
-                        <td>
-                            <span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 3px; margin-right: 8px;"></span>
-                            <strong>${t.employee_name}</strong>
-                        </td>
-                        <td class="text-right">${t.total_hours.toFixed(1)}h</td>
-                        <td class="text-right">${pct}%</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-        
-        // ============== OTHER CHARTS (Admin only) ==============
-        function renderClientsChart() {
-            const top15 = clientsData.slice(0, 15);
-            const ctx = document.getElementById('clientsChart').getContext('2d');
-            
-            if (clientsChart) clientsChart.destroy();
-            clientsChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: top15.map(c => c.client_name),
-                    datasets: [
-                        { label: 'Revenue', data: top15.map(c => c.revenue), backgroundColor: '#11845B' },
-                        { label: 'Coût', data: top15.map(c => c.cost), backgroundColor: '#dc2626' }
-                    ]
-                },
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { position: 'top' },
-                        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB') } },
-                        datalabels: { display: false }
-                    },
-                    scales: { x: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
-                }
-            });
-        }
-        
-        function renderClientsTable() {
-            const tbody = document.querySelector('#clientsTable tbody');
-            const tfoot = document.getElementById('clientsTableFooter');
-            
-            const totals = clientsData.reduce((acc, c) => ({
-                revenue: acc.revenue + (c.revenue || 0),
-                cost: acc.cost + (c.cost || 0),
-                hours: acc.hours + (c.hours || 0)
-            }), { revenue: 0, cost: 0, hours: 0 });
-            const totalProfit = totals.revenue - totals.cost;
-            const totalMargin = totals.revenue ? Math.round(totalProfit / totals.revenue * 100) : 0;
-            
-            tbody.innerHTML = clientsData.map(c => {
-                const profit = (c.revenue || 0) - (c.cost || 0);
-                const margin = c.revenue ? Math.round(profit / c.revenue * 100) : 0;
-                return `
-                <tr>
-                    <td><strong>${c.client_name}</strong></td>
-                    <td class="text-right text-green">${formatCurrency(c.revenue)}</td>
-                    <td class="text-right text-red">${formatCurrency(c.cost)}</td>
-                    <td class="text-right">${formatNumber(c.hours)}h</td>
-                    <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
-                    <td class="text-right">
-                        <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">${margin}%</span>
-                    </td>
-                </tr>
-            `}).join('');
-            
-            tfoot.innerHTML = `
-                <tr class="total-row">
-                    <td><strong>TOTAL</strong></td>
-                    <td class="text-right">${formatCurrency(totals.revenue)}</td>
-                    <td class="text-right">${formatCurrency(totals.cost)}</td>
-                    <td class="text-right">${formatNumber(totals.hours)}h</td>
-                    <td class="text-right">${formatCurrency(totalProfit)}</td>
-                    <td class="text-right">
-                        <span class="badge ${totalMargin >= 70 ? 'high' : totalMargin >= 50 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">${totalMargin}%</span>
-                    </td>
-                </tr>
-            `;
-        }
-        
-        function renderMonthlyChart() {
-            if (!monthlyData || monthlyData.length === 0) return;
-            const ctx = document.getElementById('monthlyChart').getContext('2d');
-            const ctx2 = document.getElementById('hoursChart').getContext('2d');
-            const labels = monthlyData.map(m => formatMonthFR(m.month));
-            
-            if (monthlyChart) monthlyChart.destroy();
-            monthlyChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels,
-                    datasets: [
-                        { label: 'Revenue', data: monthlyData.map(m => m.revenue), borderColor: '#0B6CD9', backgroundColor: '#0B6CD9', tension: 0.3 },
-                        { label: 'Coût', data: monthlyData.map(m => m.cost), borderColor: '#dc2626', backgroundColor: '#dc2626', tension: 0.3 },
-                        { label: 'Profit', data: monthlyData.map(m => m.profit), borderColor: '#11845B', backgroundColor: '#11845B', tension: 0.3 }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { intersect: false, mode: 'index' },
-                    plugins: { 
-                        legend: { position: 'top' },
-                        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB') } },
-                        datalabels: { display: false }
-                    },
-                    scales: { y: { ticks: { callback: v => '£' + (v/1000) + 'k' } } }
-                }
-            });
-            
-            if (hoursChart) hoursChart.destroy();
-            hoursChart = new Chart(ctx2, {
-                type: 'bar',
-                data: { labels, datasets: [{ label: 'Heures', data: monthlyData.map(m => m.hours), backgroundColor: '#211F54' }] },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { 
-                        legend: { display: false },
-                        tooltip: { callbacks: { label: ctx => ctx.raw.toLocaleString('en-GB') + ' heures' } },
-                        datalabels: { display: false }
-                    }
-                }
-            });
-        }
-        
-        function renderHoursBreakdownCharts() {
-            if (!breakdownData || breakdownData.length === 0) return;
-            
-            const excludeInternal = document.getElementById('excludeInternal').checked;
-            const filteredData = excludeInternal 
-                ? breakdownData.filter(row => row.client_name !== INTERNAL_CLIENT)
-                : breakdownData;
-            
-            // Chart 1: Hours by Employee
-            const employeeMap = {};
-            filteredData.forEach(row => {
-                if (!employeeMap[row.employee_name]) employeeMap[row.employee_name] = { total: 0, clients: {} };
-                employeeMap[row.employee_name].clients[row.client_name] = row.hours;
-                employeeMap[row.employee_name].total += row.hours;
-            });
-            
-            const sortedEmployees = Object.entries(employeeMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
-            const clientTotals = {};
-            filteredData.forEach(row => { clientTotals[row.client_name] = (clientTotals[row.client_name] || 0) + row.hours; });
-            const sortedClients = Object.entries(clientTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
-            
-            const datasetsForEmployeeChart = sortedClients.map((clientName, idx) => ({
-                label: clientName,
-                data: sortedEmployees.map(empName => employeeMap[empName].clients[clientName] || 0),
-                backgroundColor: CLIENT_COLORS[idx % CLIENT_COLORS.length]
-            }));
-            
-            const ctx1 = document.getElementById('hoursByEmployeeChart').getContext('2d');
-            if (hoursByEmployeeChart) hoursByEmployeeChart.destroy();
-            hoursByEmployeeChart = new Chart(ctx1, {
-                type: 'bar',
-                data: { labels: sortedEmployees, datasets: datasetsForEmployeeChart },
-                plugins: [ChartDataLabels],
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    layout: { padding: { right: 50 } },
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: { callbacks: { title: () => '', label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
-                        datalabels: {
-                            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
-                            anchor: 'end', align: 'end', offset: 4,
-                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
-                            font: { weight: 'bold', size: 11 }, color: '#211F54'
-                        }
-                    },
-                    scales: { x: { stacked: true, ticks: { callback: v => v + 'h' } }, y: { stacked: true } }
-                }
-            });
-            
-            // Chart 2: Hours by Client
-            const clientMap = {};
-            filteredData.forEach(row => {
-                if (!clientMap[row.client_name]) clientMap[row.client_name] = { total: 0, employees: {} };
-                clientMap[row.client_name].employees[row.employee_name] = row.hours;
-                clientMap[row.client_name].total += row.hours;
-            });
-            
-            const sortedClientsForChart2 = Object.entries(clientMap).sort((a, b) => b[1].total - a[1].total).map(([name]) => name);
-            const employeeTotals = {};
-            filteredData.forEach(row => { employeeTotals[row.employee_name] = (employeeTotals[row.employee_name] || 0) + row.hours; });
-            const sortedEmployeesForLegend = Object.entries(employeeTotals).sort((a, b) => b[1] - a[1]).map(([name]) => name);
-            
-            const employeeColorMap = {};
-            sortedEmployeesForLegend.forEach((empName, idx) => {
-                employeeColorMap[empName] = EMPLOYEE_COLORS[empName] || DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
-            });
-            
-            const datasetsForClientChart = sortedEmployeesForLegend.map(empName => ({
-                label: empName,
-                data: sortedClientsForChart2.map(clientName => clientMap[clientName].employees[empName] || 0),
-                backgroundColor: employeeColorMap[empName]
-            }));
-            
-            const ctx2 = document.getElementById('hoursByClientChart').getContext('2d');
-            if (hoursByClientChart) hoursByClientChart.destroy();
-            hoursByClientChart = new Chart(ctx2, {
-                type: 'bar',
-                data: { labels: sortedClientsForChart2, datasets: datasetsForClientChart },
-                plugins: [ChartDataLabels],
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    layout: { padding: { right: 50 } },
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
-                        tooltip: { callbacks: { title: () => '', label: ctx => `${ctx.dataset.label}: ${ctx.raw}h` } },
-                        datalabels: {
-                            display: ctx => ctx.datasetIndex === ctx.chart.data.datasets.length - 1,
-                            anchor: 'end', align: 'end', offset: 4,
-                            formatter: (val, ctx) => Math.round(ctx.chart.data.datasets.reduce((sum, ds) => sum + (ds.data[ctx.dataIndex] || 0), 0)) + 'h',
-                            font: { weight: 'bold', size: 11 }, color: '#211F54'
-                        }
-                    },
-                    scales: { x: { stacked: true, ticks: { callback: v => v + 'h' } }, y: { stacked: true } }
-                }
-            });
-        }
     </script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/tabs.js"></script>
+    <script src="js/export.js"></script>
+    <script src="js/app.js"></script>
 </body>
 </html>
