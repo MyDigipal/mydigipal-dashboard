@@ -26,7 +26,7 @@ class TabManager {
     });
 
     panelElements.forEach(panel => {
-      const panelId = panel.id.replace('Panel', '');
+      const panelId = panel.id.replace('panel-', '');
       this.panels[panelId] = panel;
     });
 
@@ -102,13 +102,13 @@ class TabManager {
    * Hide admin-only tabs (called for non-admin users)
    */
   hideAdminTabs() {
-    // Rentabilité and Évolution are admin-only
-    this.setTabVisibility('rentabilite', false);
-    this.setTabVisibility('evolution', false);
+    // Clients and Monthly are admin-only
+    this.setTabVisibility('clients', false);
+    this.setTabVisibility('monthly', false);
 
     // If current tab is admin-only, switch to first available tab
-    if (this.currentTab === 'rentabilite' || this.currentTab === 'evolution') {
-      this.switchTab('heures');
+    if (this.currentTab === 'clients' || this.currentTab === 'monthly') {
+      this.switchTab('hours');
     }
   }
 }

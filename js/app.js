@@ -210,16 +210,16 @@ class DashboardApp {
       const { dateFrom, dateTo, includePaul } = this.currentFilters;
 
       switch (tabId) {
-        case 'rentabilite':
+        case 'clients':
           await this.loadRentabilite(dateFrom, dateTo, includePaul);
           break;
-        case 'evolution':
+        case 'monthly':
           await this.loadEvolution(dateFrom, dateTo, includePaul);
           break;
-        case 'heures':
+        case 'hours':
           await this.loadHeures(dateFrom, dateTo);
           break;
-        case 'client':
+        case 'clientdetail':
           await this.loadClientTab(dateFrom, dateTo);
           break;
         case 'planning':

@@ -83,15 +83,15 @@
 
             <!-- Tabs -->
             <div class="tabs" id="tabsContainer">
-                <button class="tab" data-tab="rentabilite">📊 Rentabilité</button>
-                <button class="tab" data-tab="evolution">📈 Évolution</button>
-                <button class="tab" data-tab="heures">⏱️ Heures</button>
-                <button class="tab" data-tab="client">🏢 Client</button>
+                <button class="tab admin-only" data-tab="clients">📊 Rentabilité</button>
+                <button class="tab admin-only" data-tab="monthly">📈 Évolution</button>
+                <button class="tab" data-tab="hours">⏱️ Heures</button>
+                <button class="tab" data-tab="clientdetail">🏢 Client</button>
                 <button class="tab" data-tab="planning">📋 Planning</button>
             </div>
 
-            <!-- Rentabilité Panel (Admin only) -->
-            <div class="panel" id="rentabilitePanel">
+            <!-- Clients Panel (Admin only) -->
+            <div class="panel" id="panel-clients">
                 <!-- Toggle Paul filter -->
                 <label class="filter-toggle" id="filterTogglePaul">
                     <input type="checkbox" id="includePaulCheckbox">
@@ -120,16 +120,16 @@
                 </table>
             </div>
 
-            <!-- Évolution Panel (Admin only) -->
-            <div class="panel" id="evolutionPanel">
+            <!-- Monthly Panel (Admin only) -->
+            <div class="panel" id="panel-monthly">
                 <h2>Évolution Mensuelle</h2>
                 <div class="chart-container">
                     <canvas id="monthlyChart"></canvas>
                 </div>
             </div>
 
-            <!-- Heures Panel -->
-            <div class="panel" id="heuresPanel">
+            <!-- Hours Panel -->
+            <div class="panel" id="panel-hours">
                 <h2>⏱️ Répartition des Heures</h2>
 
                 <!-- Toggle internal filter -->
@@ -147,7 +147,7 @@
             </div>
 
             <!-- Client Detail Panel -->
-            <div class="panel" id="clientPanel">
+            <div class="panel" id="panel-clientdetail">
                 <h2>🏢 Détail par Client</h2>
 
                 <div class="client-selector">
@@ -188,7 +188,7 @@
             </div>
 
             <!-- Planning Panel -->
-            <div class="panel" id="planningPanel">
+            <div class="panel" id="panel-planning">
                 <h2>📋 Planning - Budget vs Réel</h2>
 
                 <div class="filter-controls">
