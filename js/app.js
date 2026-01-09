@@ -81,9 +81,13 @@ class DashboardApp {
 
     // Paul filter toggle
     const paulToggle = document.getElementById('includePaulCheckbox');
-    if (paulToggle) {
-      paulToggle.addEventListener('change', (e) => {
-        this.currentFilters.includePaul = e.target.checked;
+    const paulToggleLabel = document.getElementById('filterTogglePaul');
+    if (paulToggle && paulToggleLabel) {
+      // Toggle on label click
+      paulToggleLabel.addEventListener('click', () => {
+        paulToggle.checked = !paulToggle.checked;
+        paulToggleLabel.classList.toggle('active', paulToggle.checked);
+        this.currentFilters.includePaul = paulToggle.checked;
         this.refreshCurrentTab();
       });
     }
@@ -93,6 +97,18 @@ class DashboardApp {
    * Setup other event listeners
    */
   setupEventListeners() {
+    // Internal filter toggle (Hours tab)
+    const internalToggle = document.getElementById('excludeInternalCheckbox');
+    const internalToggleLabel = document.getElementById('filterToggleInternal');
+    if (internalToggle && internalToggleLabel) {
+      internalToggleLabel.addEventListener('click', () => {
+        internalToggle.checked = !internalToggle.checked;
+        internalToggleLabel.classList.toggle('active', internalToggle.checked);
+        // Refresh hours charts
+        this.refreshCurrentTab();
+      });
+    }
+
     // Client selector (for Client tab)
     const clientSelect = document.getElementById('clientSelect');
     if (clientSelect) {
