@@ -268,8 +268,66 @@ class DashboardApp {
     // Render chart
     window.chartManager.renderClientsChart(data);
 
-    // Update table (simplified - would need more code for full table)
+    // Render table
+    this.renderClientsTable(data);
+
     console.log('✅ Rentabilité loaded:', data.length, 'clients');
+  }
+
+  /**
+   * Render clients table
+   * @param {Array} data - Clients data
+   */
+  renderClientsTable(data) {
+    const tbody = document.querySelector('#clientsTable tbody');
+    const tfoot = document.getElementById('clientsTableFooter');
+
+    if (!tbody || !tfoot) return;
+
+    const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
+    const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
+
+    // Calculate totals
+    const totals = data.reduce((acc, c) => ({
+      revenue: acc.revenue + (c.revenue || 0),
+      cost: acc.cost + (c.cost || 0),
+      hours: acc.hours + (c.hours || 0)
+    }), { revenue: 0, cost: 0, hours: 0 });
+
+    const totalProfit = totals.revenue - totals.cost;
+    const totalMargin = totals.revenue ? Math.round(totalProfit / totals.revenue * 100) : 0;
+
+    // Render rows
+    tbody.innerHTML = data.map(c => {
+      const profit = (c.revenue || 0) - (c.cost || 0);
+      const margin = c.revenue ? Math.round(profit / c.revenue * 100) : 0;
+      return `
+        <tr>
+          <td><strong>${c.client_name}</strong></td>
+          <td class="text-right text-green">${formatCurrency(c.revenue)}</td>
+          <td class="text-right text-red">${formatCurrency(c.cost)}</td>
+          <td class="text-right">${formatNumber(c.hours)}h</td>
+          <td class="text-right ${profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(profit)}</td>
+          <td class="text-right">
+            <span class="badge ${margin >= 70 ? 'high' : margin >= 50 ? 'medium' : 'low'}">${margin}%</span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Render footer
+    tfoot.innerHTML = `
+      <tr class="total-row">
+        <td><strong>TOTAL</strong></td>
+        <td class="text-right">${formatCurrency(totals.revenue)}</td>
+        <td class="text-right">${formatCurrency(totals.cost)}</td>
+        <td class="text-right">${formatNumber(totals.hours)}h</td>
+        <td class="text-right">${formatCurrency(totalProfit)}</td>
+        <td class="text-right">
+          <span class="badge ${totalMargin >= 70 ? 'high' : totalMargin >= 50 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">${totalMargin}%</span>
+        </td>
+      </tr>
+    `;
   }
 
   /**
@@ -320,6 +378,10 @@ class DashboardApp {
     const { dateFrom, dateTo } = this.currentFilters;
     const data = await window.apiClient.getClientTimeline(clientId, dateFrom, dateTo);
 
+    // Show client detail content, hide empty state
+    document.getElementById('clientDetailContent').style.display = 'block';
+    document.getElementById('clientDetailEmpty').style.display = 'none';
+
     // Update total hours display
     const totalHours = data.totals.reduce((sum, e) => sum + e.total_hours, 0);
     document.getElementById('clientTotalHours').textContent = totalHours.toFixed(1) + ' heures';
@@ -328,7 +390,37 @@ class DashboardApp {
     const employees = data.totals.map(e => e.employee_name);
     window.chartManager.renderClientTimelineChart(data.daily, employees);
 
+    // Render employee breakdown table
+    this.renderClientEmployeesTable(data.totals);
+
     console.log('✅ Client detail loaded:', data.client_name);
+  }
+
+  /**
+   * Render client employees table
+   * @param {Array} totals - Employee totals
+   */
+  renderClientEmployeesTable(totals) {
+    const tbody = document.querySelector('#clientEmployeesTable tbody');
+    if (!tbody) return;
+
+    const totalHours = totals.reduce((sum, t) => sum + t.total_hours, 0);
+    const sortedTotals = [...totals].sort((a, b) => b.total_hours - a.total_hours);
+
+    tbody.innerHTML = sortedTotals.map(t => {
+      const pct = totalHours > 0 ? Math.round(t.total_hours / totalHours * 100) : 0;
+      const color = CONFIG.COLORS.EMPLOYEES[t.employee_name] || '#666';
+      return `
+        <tr>
+          <td>
+            <span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 3px; margin-right: 8px;"></span>
+            <strong>${t.employee_name}</strong>
+          </td>
+          <td class="text-right">${t.total_hours.toFixed(1)}h</td>
+          <td class="text-right">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
   }
 
   /**
@@ -361,6 +453,16 @@ class DashboardApp {
   async loadBudgetProgress(month) {
     const data = await window.apiClient.getBudgetProgress(month);
 
+    if (!data.clients || data.clients.length === 0) {
+      document.getElementById('planningCards').innerHTML = '';
+      document.getElementById('planningEmpty').style.display = 'block';
+      document.getElementById('planningSummary').style.display = 'none';
+      return;
+    }
+
+    document.getElementById('planningEmpty').style.display = 'none';
+    document.getElementById('planningSummary').style.display = 'grid';
+
     // Update summary cards
     const totalBudgeted = data.clients.reduce((sum, c) => sum + c.budgeted_hours, 0);
     const totalActual = data.clients.reduce((sum, c) => sum + c.actual_hours, 0);
@@ -371,8 +473,64 @@ class DashboardApp {
     document.getElementById('planningRemaining').textContent = remaining.toFixed(0) + 'h';
     document.getElementById('planningMonthProgress').textContent = data.month_progress_pct + '%';
 
-    // Render planning cards (simplified - would need more code for full implementation)
+    // Render planning cards
+    this.renderPlanningCards(data.clients, data.month_progress_pct);
+
     console.log('✅ Budget progress loaded for', month, ':', data.clients.length, 'clients');
+  }
+
+  /**
+   * Render planning cards for budget progress
+   * @param {Array} clients - Client budget data
+   * @param {number} monthProgressPct - Month progress percentage
+   */
+  renderPlanningCards(clients, monthProgressPct) {
+    const cardsContainer = document.getElementById('planningCards');
+    if (!cardsContainer) return;
+
+    cardsContainer.innerHTML = clients.map((client, index) => {
+      const progressWidth = Math.min(client.progress_pct, 100);
+      const pacePosition = Math.min(monthProgressPct, 100);
+
+      return `
+        <div class="planning-card ${client.status}" style="animation-delay: ${index * 0.05}s">
+          <div class="planning-card-header">
+            <h4>${client.client_name}</h4>
+            <span class="status-badge ${client.status}">
+              ${client.status === 'ok' ? '✓ En bonne voie' :
+                client.status === 'warning' ? '⚠️ Attention' :
+                '🚨 Dépassé'}
+            </span>
+          </div>
+
+          <div class="planning-card-stats">
+            <span><strong>Budget:</strong> ${client.budgeted_hours}h</span>
+            <span><strong>Réel:</strong> ${client.actual_hours}h</span>
+            <span><strong>Restant:</strong> ${client.remaining_hours}h</span>
+            <span class="${client.pace_diff > 0 ? 'text-red' : 'text-green'}">
+              <strong>vs pace:</strong> ${client.pace_diff > 0 ? '+' : ''}${client.pace_diff}h
+            </span>
+          </div>
+
+          <div class="progress-bar-container">
+            <div class="progress-bar ${client.status}" style="width: ${progressWidth}%"></div>
+            <div class="pace-marker" style="left: ${pacePosition}%" title="Position idéale: ${monthProgressPct}% du mois"></div>
+            <span class="progress-text">${client.progress_pct}%</span>
+          </div>
+
+          ${client.employees && client.employees.length > 0 ? `
+            <div class="planning-card-employees">
+              ${client.employees.map((emp, idx) => `
+                <span class="employee-chip">
+                  <span class="dot" style="background: ${CONFIG.COLORS.EMPLOYEES[emp.employee_name] || CONFIG.COLORS.DEFAULT[idx % CONFIG.COLORS.DEFAULT.length]}"></span>
+                  ${emp.employee_name}: ${emp.hours}h
+                </span>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
   }
 }
 
