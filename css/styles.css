@@ -151,11 +151,10 @@ body {
     font-size: 0.85rem;
 }
 .date-range-inputs {
-    display: none;
+    display: flex;
     align-items: center;
     gap: 0.5rem;
 }
-.date-range-inputs.visible { display: flex; }
 .apply-btn {
     padding: 0.5rem 1rem;
     background: linear-gradient(135deg, #11845B, #0d6b4a);

@@ -14,6 +14,7 @@ class DashboardApp {
       column: null,
       ascending: false
     };
+    this.sortHandlersSetup = false; // Track if handlers are already setup
   }
 
   /**
@@ -46,6 +47,9 @@ class DashboardApp {
 
       // Setup event listeners
       this.setupEventListeners();
+
+      // Apply default date filter (last month)
+      this.applyDatePresetDefault('lastmonth');
 
       // Load initial data for current tab
       const currentTab = window.tabManager.getCurrentTab();
@@ -141,6 +145,40 @@ class DashboardApp {
         window.authManager.logout();
       });
     }
+  }
+
+  /**
+   * Apply date preset default (without refreshing - used at init)
+   * @param {string} preset - Preset identifier
+   */
+  applyDatePresetDefault(preset) {
+    const today = new Date();
+    let dateFrom, dateTo, label;
+
+    switch (preset) {
+      case 'lastmonth':
+        const now = new Date();
+        const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        dateFrom = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+        dateTo = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+        const monthName = CONFIG.MONTH_NAMES_FR[lastMonth.getMonth()];
+        label = `${monthName} ${lastMonth.getFullYear()}`;
+        break;
+    }
+
+    this.currentFilters.dateFrom = dateFrom ? dateFrom.toISOString().split('T')[0] : null;
+    this.currentFilters.dateTo = dateTo ? dateTo.toISOString().split('T')[0] : null;
+
+    // Update current period label
+    this.updatePeriodLabel(label);
+
+    // Update active preset button
+    document.querySelectorAll('.date-preset').forEach(btn => {
+      btn.classList.remove('active');
+      if (btn.dataset.preset === preset) {
+        btn.classList.add('active');
+      }
+    });
   }
 
   /**
@@ -326,6 +364,8 @@ class DashboardApp {
    * Setup table sort handlers (clickable column headers)
    */
   setupTableSortHandlers() {
+    if (this.sortHandlersSetup) return; // Only setup once
+
     const headers = document.querySelectorAll('#clientsTable thead th');
     const columnMap = ['client_name', 'revenue', 'cost', 'hours', 'profit', 'margin'];
 
@@ -336,6 +376,8 @@ class DashboardApp {
         this.sortClientsTable(columnMap[index]);
       });
     });
+
+    this.sortHandlersSetup = true;
   }
 
   /**
@@ -343,12 +385,13 @@ class DashboardApp {
    * @param {string} column - Column name to sort by
    */
   sortClientsTable(column) {
-    // Toggle direction if same column, otherwise start descending
+    // Toggle direction if same column, otherwise start descending for numbers
     if (this.sortState.column === column) {
       this.sortState.ascending = !this.sortState.ascending;
     } else {
       this.sortState.column = column;
-      this.sortState.ascending = column === 'client_name'; // Alphabetical ascending, numbers descending
+      // For numbers: start with descending (false), for client_name: start with ascending (true)
+      this.sortState.ascending = false;
     }
 
     // Sort data
@@ -358,7 +401,7 @@ class DashboardApp {
       if (column === 'client_name') {
         aVal = a.client_name.toLowerCase();
         bVal = b.client_name.toLowerCase();
-        return this.sortState.ascending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        return this.sortState.ascending ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
       } else if (column === 'profit') {
         aVal = (a.revenue || 0) - (a.cost || 0);
         bVal = (b.revenue || 0) - (b.cost || 0);
@@ -371,6 +414,7 @@ class DashboardApp {
       }
 
       if (column !== 'client_name') {
+        // ascending=false: grand → petit (bVal - aVal), ascending=true: petit → grand (aVal - bVal)
         return this.sortState.ascending ? aVal - bVal : bVal - aVal;
       }
       return 0;
