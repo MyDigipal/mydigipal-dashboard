@@ -9,6 +9,11 @@ class DashboardApp {
       includePaul: false
     };
     this.initialized = false;
+    this.clientsData = []; // Store for sorting
+    this.sortState = {
+      column: null,
+      ascending: false
+    };
   }
 
   /**
@@ -293,6 +298,9 @@ class DashboardApp {
   async loadRentabilite(dateFrom, dateTo, includePaul) {
     const data = await window.apiClient.getClients(dateFrom, dateTo, includePaul);
 
+    // Store data for sorting
+    this.clientsData = data;
+
     // Update KPIs
     const totalRevenue = data.reduce((sum, c) => sum + c.revenue, 0);
     const totalCost = data.reduce((sum, c) => sum + c.cost, 0);
@@ -307,10 +315,69 @@ class DashboardApp {
     // Render chart
     window.chartManager.renderClientsChart(data);
 
-    // Render table
+    // Render table with sort handlers
     this.renderClientsTable(data);
+    this.setupTableSortHandlers();
 
     console.log('✅ Rentabilité loaded:', data.length, 'clients');
+  }
+
+  /**
+   * Setup table sort handlers (clickable column headers)
+   */
+  setupTableSortHandlers() {
+    const headers = document.querySelectorAll('#clientsTable thead th');
+    const columnMap = ['client_name', 'revenue', 'cost', 'hours', 'profit', 'margin'];
+
+    headers.forEach((header, index) => {
+      header.style.cursor = 'pointer';
+      header.style.userSelect = 'none';
+      header.addEventListener('click', () => {
+        this.sortClientsTable(columnMap[index]);
+      });
+    });
+  }
+
+  /**
+   * Sort clients table by column
+   * @param {string} column - Column name to sort by
+   */
+  sortClientsTable(column) {
+    // Toggle direction if same column, otherwise start descending
+    if (this.sortState.column === column) {
+      this.sortState.ascending = !this.sortState.ascending;
+    } else {
+      this.sortState.column = column;
+      this.sortState.ascending = column === 'client_name'; // Alphabetical ascending, numbers descending
+    }
+
+    // Sort data
+    const sortedData = [...this.clientsData].sort((a, b) => {
+      let aVal, bVal;
+
+      if (column === 'client_name') {
+        aVal = a.client_name.toLowerCase();
+        bVal = b.client_name.toLowerCase();
+        return this.sortState.ascending ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      } else if (column === 'profit') {
+        aVal = (a.revenue || 0) - (a.cost || 0);
+        bVal = (b.revenue || 0) - (b.cost || 0);
+      } else if (column === 'margin') {
+        aVal = a.revenue ? ((a.revenue - a.cost) / a.revenue) * 100 : 0;
+        bVal = b.revenue ? ((b.revenue - b.cost) / b.revenue) * 100 : 0;
+      } else {
+        aVal = a[column] || 0;
+        bVal = b[column] || 0;
+      }
+
+      if (column !== 'client_name') {
+        return this.sortState.ascending ? aVal - bVal : bVal - aVal;
+      }
+      return 0;
+    });
+
+    // Re-render table with sorted data
+    this.renderClientsTable(sortedData);
   }
 
   /**

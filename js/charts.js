@@ -81,11 +81,27 @@ class ChartManager {
         indexAxis: 'y',
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
           legend: { position: 'top' },
           tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(33, 31, 84, 0.95)',
+            borderColor: '#666',
+            borderWidth: 1,
+            titleFont: { size: 14, weight: 'bold' },
+            bodyFont: { size: 13 },
+            padding: 12,
             callbacks: {
-              label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB')
+              label: ctx => {
+                const label = ctx.dataset.label || '';
+                const value = '£' + ctx.raw.toLocaleString('en-GB');
+                return `${label}: ${value}`;
+              }
             }
           },
           datalabels: { display: false }
@@ -269,11 +285,23 @@ class ChartManager {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
           legend: { position: 'top' },
           tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(33, 31, 84, 0.95)',
+            borderColor: '#666',
+            borderWidth: 1,
+            titleFont: { size: 14, weight: 'bold' },
+            bodyFont: { size: 13 },
+            padding: 12,
             callbacks: {
-              label: ctx => ctx.dataset.label + ': ' + ctx.raw + 'h'
+              label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
             }
           },
           datalabels: { display: false }
