@@ -390,7 +390,49 @@ class DashboardApp {
     // Render chart
     window.chartManager.renderEmployeesChart(data);
 
+    // Render table
+    this.renderEmployeesTable(data);
+
     console.log('✅ Heures loaded:', data.length, 'employees');
+  }
+
+  /**
+   * Render employees hours table
+   * @param {Array} data - Employees data
+   */
+  renderEmployeesTable(data) {
+    const tbody = document.querySelector('#employeesTable tbody');
+    const tfoot = document.getElementById('employeesTableFooter');
+
+    if (!tbody || !tfoot) return;
+
+    const totalHours = data.reduce((sum, e) => sum + e.total_hours, 0);
+    const sortedData = [...data].sort((a, b) => b.total_hours - a.total_hours);
+
+    // Render rows
+    tbody.innerHTML = sortedData.map(e => {
+      const pct = totalHours > 0 ? Math.round(e.total_hours / totalHours * 100) : 0;
+      const color = CONFIG.COLORS.EMPLOYEES[e.employee_name] || '#666';
+      return `
+        <tr>
+          <td>
+            <span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 3px; margin-right: 8px;"></span>
+            <strong>${e.employee_name}</strong>
+          </td>
+          <td class="text-right">${e.total_hours.toFixed(1)}h</td>
+          <td class="text-right">${pct}%</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Render footer
+    tfoot.innerHTML = `
+      <tr class="total-row">
+        <td><strong>TOTAL</strong></td>
+        <td class="text-right">${totalHours.toFixed(1)}h</td>
+        <td class="text-right">100%</td>
+      </tr>
+    `;
   }
 
   /**
@@ -428,6 +470,9 @@ class DashboardApp {
     // Render timeline chart
     const employees = data.totals.map(e => e.employee_name);
     window.chartManager.renderClientTimelineChart(data.daily, employees);
+
+    // Render employee doughnut chart
+    window.chartManager.renderClientEmployeesDoughnut(data.totals);
 
     // Render employee breakdown table
     this.renderClientEmployeesTable(data.totals);

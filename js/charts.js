@@ -143,11 +143,27 @@ class ChartManager {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+          mode: 'index',
+          intersect: false
+        },
         plugins: {
           legend: { position: 'top' },
           tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(33, 31, 84, 0.95)',
+            borderColor: '#666',
+            borderWidth: 1,
+            titleFont: { size: 14, weight: 'bold' },
+            bodyFont: { size: 13 },
+            padding: 12,
             callbacks: {
-              label: ctx => ctx.dataset.label + ': £' + ctx.raw.toLocaleString('en-GB')
+              label: ctx => {
+                const label = ctx.dataset.label || '';
+                const value = '£' + ctx.raw.toLocaleString('en-GB');
+                return `${label}: ${value}`;
+              }
             }
           }
         },
@@ -265,6 +281,62 @@ class ChartManager {
         scales: {
           x: { stacked: true },
           y: { stacked: true }
+        }
+      }
+    });
+
+    this.markCached(cacheKey);
+  }
+
+  /**
+   * Render client employees doughnut chart
+   * @param {Array} totals - Employee totals data
+   */
+  renderClientEmployeesDoughnut(totals) {
+    const cacheKey = 'client-employees-' + totals.length;
+    if (this.shouldSkipRedraw(cacheKey)) return;
+
+    this.destroyChart('clientEmployeesChart');
+
+    const ctx = document.getElementById('clientEmployeesChart');
+    if (!ctx) return;
+
+    const sortedTotals = [...totals].sort((a, b) => b.total_hours - a.total_hours);
+    const colors = sortedTotals.map((t, idx) =>
+      CONFIG.COLORS.EMPLOYEES[t.employee_name] ||
+      Object.values(CONFIG.COLORS.EMPLOYEES)[idx % Object.values(CONFIG.COLORS.EMPLOYEES).length]
+    );
+
+    this.charts.clientEmployeesChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels: sortedTotals.map(t => t.employee_name),
+        datasets: [{
+          data: sortedTotals.map(t => t.total_hours),
+          backgroundColor: colors,
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right' },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.label + ': ' + ctx.raw.toFixed(1) + 'h'
+            }
+          },
+          datalabels: {
+            formatter: (value, ctx) => {
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const percent = ((value / total) * 100).toFixed(0);
+              return percent + '%';
+            },
+            color: '#fff',
+            font: { weight: 'bold', size: 12 }
+          }
         }
       }
     });

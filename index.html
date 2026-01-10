@@ -146,6 +146,19 @@
                 <div class="chart-container tall">
                     <canvas id="employeesChart"></canvas>
                 </div>
+
+                <h3>Détail des heures</h3>
+                <table id="employeesTable">
+                    <thead>
+                        <tr>
+                            <th>Employé</th>
+                            <th class="text-right">Heures</th>
+                            <th class="text-right">% du total</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                    <tfoot id="employeesTableFooter"></tfoot>
+                </table>
             </div>
 
             <!-- Client Detail Panel -->
@@ -166,6 +179,12 @@
                             <h4>📅 Évolution journalière des heures</h4>
                             <div class="chart-container medium">
                                 <canvas id="clientTimelineChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-box">
+                            <h4>👥 Répartition par employé</h4>
+                            <div class="chart-container medium">
+                                <canvas id="clientEmployeesChart"></canvas>
                             </div>
                         </div>
                     </div>
