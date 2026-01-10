@@ -696,3 +696,100 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
   margin-bottom: 1.5rem;
 }
 
+
+/* Comparison Cards (Evolution tab) */
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.comparison-card {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.04);
+}
+
+.comparison-header {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #211F54;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #EFF0F6;
+}
+
+.comparison-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.25rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #211F54;
+}
+
+.stat-trend {
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.stat-trend.positive {
+  color: #11845B;
+}
+
+.stat-trend.negative {
+  color: #dc2626;
+}
+
+.stat-trend.neutral {
+  color: #666;
+}
+
+/* Charts Grid for Performance tab */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.chart-box {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  border: 1px solid rgba(0,0,0,0.04);
+}
+
+.chart-box h4 {
+  margin-bottom: 1rem;
+  color: #211F54;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.chart-container.medium {
+  height: 300px;
+}
+

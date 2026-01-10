@@ -102,12 +102,13 @@ class TabManager {
    * Hide admin-only tabs (called for non-admin users)
    */
   hideAdminTabs() {
-    // Clients and Monthly are admin-only
+    // Clients, Monthly, and Performance are admin-only
     this.setTabVisibility('clients', false);
     this.setTabVisibility('monthly', false);
+    this.setTabVisibility('performance', false);
 
     // If current tab is admin-only, switch to first available tab
-    if (this.currentTab === 'clients' || this.currentTab === 'monthly') {
+    if (this.currentTab === 'clients' || this.currentTab === 'monthly' || this.currentTab === 'performance') {
       this.switchTab('hours');
     }
   }

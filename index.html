@@ -87,6 +87,7 @@
             <div class="tabs" id="tabsContainer">
                 <button class="tab admin-only" data-tab="clients">📊 Rentabilité</button>
                 <button class="tab admin-only" data-tab="monthly">📈 Évolution</button>
+                <button class="tab admin-only" data-tab="performance">💼 Performance</button>
                 <button class="tab" data-tab="hours">⏱️ Heures</button>
                 <button class="tab" data-tab="clientdetail">🏢 Client</button>
                 <button class="tab" data-tab="planning">📋 Planning</button>
@@ -125,9 +126,103 @@
             <!-- Monthly Panel (Admin only) -->
             <div class="panel" id="panel-monthly">
                 <h2>Évolution Mensuelle</h2>
+
+                <!-- Comparison Cards -->
+                <div class="comparison-grid" id="comparisonCards">
+                    <div class="comparison-card">
+                        <div class="comparison-header">📊 Mois dernier vs Mois en cours</div>
+                        <div class="comparison-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Revenue</span>
+                                <span class="stat-value" id="momRevenue">-</span>
+                                <span class="stat-trend" id="momRevenueTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Profit</span>
+                                <span class="stat-value" id="momProfit">-</span>
+                                <span class="stat-trend" id="momProfitTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Marge</span>
+                                <span class="stat-value" id="momMargin">-</span>
+                                <span class="stat-trend" id="momMarginTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Heures</span>
+                                <span class="stat-value" id="momHours">-</span>
+                                <span class="stat-trend" id="momHoursTrend"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="comparison-card">
+                        <div class="comparison-header">📅 Même mois année dernière</div>
+                        <div class="comparison-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Revenue</span>
+                                <span class="stat-value" id="yoyRevenue">-</span>
+                                <span class="stat-trend" id="yoyRevenueTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Profit</span>
+                                <span class="stat-value" id="yoyProfit">-</span>
+                                <span class="stat-trend" id="yoyProfitTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Marge</span>
+                                <span class="stat-value" id="yoyMargin">-</span>
+                                <span class="stat-trend" id="yoyMarginTrend"></span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Heures</span>
+                                <span class="stat-value" id="yoyHours">-</span>
+                                <span class="stat-trend" id="yoyHoursTrend"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 2rem;">Tendance sur 12 mois</h3>
                 <div class="chart-container">
                     <canvas id="monthlyChart"></canvas>
                 </div>
+            </div>
+
+            <!-- Performance Panel (Admin only) -->
+            <div class="panel" id="panel-performance">
+                <h2>💼 Performance des Employés</h2>
+
+                <div class="charts-grid">
+                    <div class="chart-box">
+                        <h4>Taux de Facturation (%)</h4>
+                        <div class="chart-container medium">
+                            <canvas id="billableRateChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-box">
+                        <h4>Revenue Généré (£)</h4>
+                        <div class="chart-container medium">
+                            <canvas id="employeeRevenueChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <h3>Détail par Employé</h3>
+                <table id="performanceTable">
+                    <thead>
+                        <tr>
+                            <th>Employé</th>
+                            <th class="text-right">Heures Totales</th>
+                            <th class="text-right">Heures Facturables</th>
+                            <th class="text-right">Taux Facturation</th>
+                            <th class="text-right">Revenue Généré</th>
+                            <th class="text-right">Coût</th>
+                            <th class="text-right">Profit</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                    <tfoot id="performanceTableFooter"></tfoot>
+                </table>
             </div>
 
             <!-- Hours Panel -->

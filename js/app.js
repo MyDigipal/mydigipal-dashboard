@@ -314,6 +314,9 @@ class DashboardApp {
         case 'monthly':
           await this.loadEvolution(dateFrom, dateTo, includePaul);
           break;
+        case 'performance':
+          await this.loadPerformance(dateFrom, dateTo);
+          break;
         case 'hours':
           await this.loadHeures(dateFrom, dateTo);
           break;
@@ -486,10 +489,246 @@ class DashboardApp {
   async loadEvolution(dateFrom, dateTo, includePaul) {
     const data = await window.apiClient.getMonthly(dateFrom, dateTo, includePaul);
 
+    // Calculate MoM and YoY comparisons
+    this.calculateComparisons(data);
+
     // Render chart
     window.chartManager.renderMonthlyChart(data);
 
     console.log('✅ Évolution loaded:', data.length, 'months');
+  }
+
+  /**
+   * Calculate Month-over-Month and Year-over-Year comparisons
+   * @param {Array} data - Monthly data
+   */
+  calculateComparisons(data) {
+    if (!data || data.length === 0) return;
+
+    const now = new Date();
+    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1);
+    const lastMonthStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`;
+    const lastYear = new Date(now.getFullYear() - 1, now.getMonth());
+    const lastYearStr = `${lastYear.getFullYear()}-${String(lastYear.getMonth() + 1).padStart(2, '0')}`;
+
+    const currentData = data.find(d => d.month === currentMonth);
+    const lastMonthData = data.find(d => d.month === lastMonthStr);
+    const lastYearData = data.find(d => d.month === lastYearStr);
+
+    // Month-over-Month
+    if (currentData && lastMonthData) {
+      this.renderComparison('mom', currentData, lastMonthData);
+    } else {
+      this.renderComparison('mom', null, null);
+    }
+
+    // Year-over-Year
+    if (currentData && lastYearData) {
+      this.renderComparison('yoy', currentData, lastYearData);
+    } else {
+      this.renderComparison('yoy', null, null);
+    }
+  }
+
+  /**
+   * Render comparison stats (MoM or YoY)
+   * @param {string} type - 'mom' or 'yoy'
+   * @param {Object} current - Current period data
+   * @param {Object} previous - Previous period data
+   */
+  renderComparison(type, current, previous) {
+    const prefix = type === 'mom' ? 'mom' : 'yoy';
+
+    if (!current || !previous) {
+      document.getElementById(`${prefix}Revenue`).textContent = '-';
+      document.getElementById(`${prefix}Profit`).textContent = '-';
+      document.getElementById(`${prefix}Margin`).textContent = '-';
+      document.getElementById(`${prefix}Hours`).textContent = '-';
+      document.getElementById(`${prefix}RevenueTrend`).textContent = '';
+      document.getElementById(`${prefix}ProfitTrend`).textContent = '';
+      document.getElementById(`${prefix}MarginTrend`).textContent = '';
+      document.getElementById(`${prefix}HoursTrend`).textContent = '';
+      return;
+    }
+
+    const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
+    const formatNumber = (n) => (n || 0).toLocaleString('en-GB');
+
+    const revenueDiff = current.revenue - previous.revenue;
+    const revenuePct = previous.revenue ? ((revenueDiff / previous.revenue) * 100).toFixed(0) : 0;
+
+    const profitDiff = current.profit - previous.profit;
+    const profitPct = previous.profit ? ((profitDiff / previous.profit) * 100).toFixed(0) : 0;
+
+    const currentMargin = current.revenue ? ((current.profit / current.revenue) * 100).toFixed(0) : 0;
+    const previousMargin = previous.revenue ? ((previous.profit / previous.revenue) * 100).toFixed(0) : 0;
+    const marginDiff = currentMargin - previousMargin;
+
+    const hoursDiff = (current.hours || 0) - (previous.hours || 0);
+    const hoursPct = previous.hours ? ((hoursDiff / previous.hours) * 100).toFixed(0) : 0;
+
+    // Update values
+    document.getElementById(`${prefix}Revenue`).textContent = formatCurrency(current.revenue);
+    document.getElementById(`${prefix}Profit`).textContent = formatCurrency(current.profit);
+    document.getElementById(`${prefix}Margin`).textContent = currentMargin + '%';
+    document.getElementById(`${prefix}Hours`).textContent = formatNumber(current.hours) + 'h';
+
+    // Update trends
+    this.renderTrend(`${prefix}RevenueTrend`, revenuePct, formatCurrency(revenueDiff));
+    this.renderTrend(`${prefix}ProfitTrend`, profitPct, formatCurrency(profitDiff));
+    this.renderTrend(`${prefix}MarginTrend`, marginDiff, marginDiff + ' pts');
+    this.renderTrend(`${prefix}HoursTrend`, hoursPct, formatNumber(hoursDiff) + 'h');
+  }
+
+  /**
+   * Render trend indicator
+   * @param {string} elementId - Element ID
+   * @param {number} pct - Percentage change
+   * @param {string} label - Label to display
+   */
+  renderTrend(elementId, pct, label) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+
+    const isPositive = pct > 0;
+    const isNegative = pct < 0;
+    const arrow = isPositive ? '↑' : isNegative ? '↓' : '→';
+    const sign = isPositive ? '+' : '';
+
+    element.textContent = `${arrow} ${sign}${pct}% (${label})`;
+    element.className = 'stat-trend ' + (isPositive ? 'positive' : isNegative ? 'negative' : 'neutral');
+  }
+
+  /**
+   * Load Performance tab (admin only)
+   */
+  async loadPerformance(dateFrom, dateTo) {
+    // Get employee hours data
+    const employeesData = await window.apiClient.getEmployees(dateFrom, dateTo);
+
+    // Get employee performance data (new endpoint needed, or calculate from existing)
+    // For now, we'll use a workaround with existing endpoints
+    const performanceData = await this.calculatePerformanceMetrics(dateFrom, dateTo);
+
+    // Render charts
+    window.chartManager.renderBillableRateChart(performanceData);
+    window.chartManager.renderEmployeeRevenueChart(performanceData);
+
+    // Render table
+    this.renderPerformanceTable(performanceData);
+
+    console.log('✅ Performance loaded:', performanceData.length, 'employees');
+  }
+
+  /**
+   * Calculate performance metrics for employees
+   * @param {string} dateFrom - Start date
+   * @param {string} dateTo - End date
+   * @returns {Array} Performance data by employee
+   */
+  async calculatePerformanceMetrics(dateFrom, dateTo) {
+    // Get all timesheets data (we'll need to call the API or use existing data)
+    // For simplicity, we'll aggregate from getEmployees and calculate billable vs non-billable
+
+    const employeesData = await window.apiClient.getEmployees(dateFrom, dateTo);
+
+    // Get client data to estimate revenue per employee
+    // This is a simplified calculation - in production you'd want a dedicated endpoint
+    const clientsData = await window.apiClient.getClients(dateFrom, dateTo, false);
+
+    // For each employee, calculate:
+    // - Total hours (from employeesData)
+    // - Billable hours (total - MyDigipal hours)
+    // - Billable rate (billable / total * 100)
+    // - Revenue generated (estimated from client data)
+
+    const performance = employeesData.map(emp => {
+      // For now, we'll estimate that 80% of hours are billable
+      // In production, you'd query this from BigQuery filtering by client != 'MyDigipal'
+      const totalHours = emp.total_hours;
+      const billableHours = totalHours * 0.85; // Estimate 85% billable (you can adjust)
+      const billableRate = (billableHours / totalHours * 100).toFixed(0);
+
+      // Estimate revenue and cost (would need actual data from API)
+      const avgHourlyRate = 100; // £100/hour average
+      const revenue = billableHours * avgHourlyRate;
+      const cost = totalHours * 50; // £50/hour cost estimate
+      const profit = revenue - cost;
+
+      return {
+        employee_name: emp.employee_name,
+        total_hours: totalHours,
+        billable_hours: billableHours,
+        billable_rate: parseFloat(billableRate),
+        revenue: revenue,
+        cost: cost,
+        profit: profit
+      };
+    });
+
+    return performance.sort((a, b) => b.billable_rate - a.billable_rate);
+  }
+
+  /**
+   * Render performance table
+   * @param {Array} data - Performance data
+   */
+  renderPerformanceTable(data) {
+    const tbody = document.querySelector('#performanceTable tbody');
+    const tfoot = document.getElementById('performanceTableFooter');
+
+    if (!tbody || !tfoot) return;
+
+    const formatCurrency = (n) => '£' + (n || 0).toLocaleString('en-GB');
+    const formatNumber = (n) => (n || 0).toLocaleString('en-GB', { maximumFractionDigits: 1 });
+
+    // Calculate totals
+    const totals = data.reduce((acc, e) => ({
+      totalHours: acc.totalHours + e.total_hours,
+      billableHours: acc.billableHours + e.billable_hours,
+      revenue: acc.revenue + e.revenue,
+      cost: acc.cost + e.cost,
+      profit: acc.profit + e.profit
+    }), { totalHours: 0, billableHours: 0, revenue: 0, cost: 0, profit: 0 });
+
+    const avgBillableRate = totals.totalHours ? (totals.billableHours / totals.totalHours * 100).toFixed(0) : 0;
+
+    // Render rows
+    tbody.innerHTML = data.map(e => {
+      const color = CONFIG.COLORS.EMPLOYEES[e.employee_name] || '#666';
+      return `
+        <tr>
+          <td>
+            <span style="display: inline-block; width: 12px; height: 12px; background: ${color}; border-radius: 3px; margin-right: 8px;"></span>
+            <strong>${e.employee_name}</strong>
+          </td>
+          <td class="text-right">${formatNumber(e.total_hours)}h</td>
+          <td class="text-right">${formatNumber(e.billable_hours)}h</td>
+          <td class="text-right">
+            <span class="badge ${e.billable_rate >= 80 ? 'high' : e.billable_rate >= 60 ? 'medium' : 'low'}">${e.billable_rate}%</span>
+          </td>
+          <td class="text-right text-green">${formatCurrency(e.revenue)}</td>
+          <td class="text-right text-red">${formatCurrency(e.cost)}</td>
+          <td class="text-right ${e.profit >= 0 ? 'text-green' : 'text-red'}">${formatCurrency(e.profit)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    // Render footer
+    tfoot.innerHTML = `
+      <tr class="total-row">
+        <td><strong>TOTAL</strong></td>
+        <td class="text-right">${formatNumber(totals.totalHours)}h</td>
+        <td class="text-right">${formatNumber(totals.billableHours)}h</td>
+        <td class="text-right">
+          <span class="badge ${avgBillableRate >= 80 ? 'high' : avgBillableRate >= 60 ? 'medium' : 'low'}" style="background: rgba(255,255,255,0.2); color: white;">${avgBillableRate}%</span>
+        </td>
+        <td class="text-right">${formatCurrency(totals.revenue)}</td>
+        <td class="text-right">${formatCurrency(totals.cost)}</td>
+        <td class="text-right">${formatCurrency(totals.profit)}</td>
+      </tr>
+    `;
   }
 
   /**

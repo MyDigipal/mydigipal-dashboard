@@ -373,6 +373,127 @@ class ChartManager {
   }
 
   /**
+   * Render billable rate chart (horizontal bar chart)
+   * @param {Array} data - Performance data
+   */
+  renderBillableRateChart(data) {
+    const cacheKey = 'billable-' + data.length;
+    if (this.shouldSkipRedraw(cacheKey)) return;
+
+    this.destroyChart('billableRateChart');
+
+    const ctx = document.getElementById('billableRateChart');
+    if (!ctx) return;
+
+    const sortedData = [...data].sort((a, b) => b.billable_rate - a.billable_rate);
+
+    this.charts.billableRateChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sortedData.map(d => d.employee_name),
+        datasets: [{
+          label: 'Taux de Facturation (%)',
+          data: sortedData.map(d => d.billable_rate),
+          backgroundColor: sortedData.map((d, idx) =>
+            CONFIG.COLORS.EMPLOYEES[d.employee_name] || CONFIG.COLORS.CHART_PALETTE[idx % CONFIG.COLORS.CHART_PALETTE.length]
+          ),
+          borderWidth: 0
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.raw.toFixed(1) + '%'
+            }
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',
+            formatter: (value) => value.toFixed(0) + '%',
+            color: '#211F54',
+            font: { weight: 'bold', size: 11 }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            max: 100,
+            ticks: {
+              callback: value => value + '%'
+            }
+          }
+        }
+      }
+    });
+
+    this.markCached(cacheKey);
+  }
+
+  /**
+   * Render employee revenue chart (horizontal bar chart)
+   * @param {Array} data - Performance data
+   */
+  renderEmployeeRevenueChart(data) {
+    const cacheKey = 'emp-revenue-' + data.length;
+    if (this.shouldSkipRedraw(cacheKey)) return;
+
+    this.destroyChart('employeeRevenueChart');
+
+    const ctx = document.getElementById('employeeRevenueChart');
+    if (!ctx) return;
+
+    const sortedData = [...data].sort((a, b) => b.revenue - a.revenue);
+
+    this.charts.employeeRevenueChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: sortedData.map(d => d.employee_name),
+        datasets: [{
+          label: 'Revenue Généré',
+          data: sortedData.map(d => d.revenue),
+          backgroundColor: CONFIG.COLORS.SUCCESS,
+          borderWidth: 0
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => '£' + ctx.raw.toLocaleString('en-GB')
+            }
+          },
+          datalabels: {
+            anchor: 'end',
+            align: 'end',
+            formatter: (value) => '£' + (value / 1000).toFixed(0) + 'k',
+            color: '#211F54',
+            font: { weight: 'bold', size: 11 }
+          }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: {
+              callback: value => '£' + (value / 1000).toFixed(0) + 'k'
+            }
+          }
+        }
+      }
+    });
+
+    this.markCached(cacheKey);
+  }
+
+  /**
    * Destroy all charts (useful for cleanup)
    */
   destroyAll() {
