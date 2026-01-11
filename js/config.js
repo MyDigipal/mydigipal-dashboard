@@ -3,7 +3,7 @@
 
 window.CONFIG = {
   // API Configuration
-  API_URL: 'https://dashboard-api-53817551397.us-central1.run.app',
+  API_URL: 'https://dashboard-api-nb53bza2dq-uc.a.run.app',
 
   // Google OAuth Configuration
   GOOGLE_CLIENT_ID: '53817551397-ejtf8sgg777dqlrlmfliqjcteat8lqf4.apps.googleusercontent.com',
