@@ -637,6 +637,231 @@ def get_health_history():
         traceback.print_exc()
         return jsonify({"error": "Failed to fetch health history"}), 500
 
+# ============================================================================
+# ANALYTICS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/analytics/clients')
+@cache.cached(timeout=600)  # 10 minutes cache
+def get_analytics_clients():
+    """Get list of active clients for analytics"""
+    try:
+        query = """
+        SELECT
+            client_id,
+            client_name,
+            alternative_name,
+            category,
+            country,
+            language,
+            active,
+            google_ads_accounts,
+            meta_ads_accounts,
+            linkedin_ads_accounts
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE active = TRUE
+        ORDER BY client_name ASC
+        """
+
+        results = client.query(query).result()
+        clients = [dict(row) for row in results]
+
+        return jsonify(clients)
+    except Exception as e:
+        print(f"Error fetching analytics clients: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch clients"}), 500
+
+
+@app.route('/api/analytics/meta-ads')
+@cache.cached(timeout=300, query_string=True)  # 5 minutes cache
+def get_meta_ads_analytics():
+    """Get Meta Ads analytics for a client"""
+    try:
+        client_id = request.args.get('client_id')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        if not client_id or not date_from or not date_to:
+            return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
+
+        # Get client mapping
+        mapping_query = """
+        SELECT meta_ads_accounts
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE client_id = @client_id
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
+            ]
+        )
+
+        mapping_result = client.query(mapping_query, job_config=job_config).result()
+        mapping_row = next(mapping_result, None)
+
+        if not mapping_row or not mapping_row.meta_ads_accounts:
+            return jsonify({'error': 'No Meta Ads accounts found for this client'}), 404
+
+        accounts = [acc.strip() for acc in mapping_row.meta_ads_accounts.split('|')]
+
+        # Calculate period length for comparison
+        from datetime import datetime as dt
+        date_from_dt = dt.strptime(date_from, '%Y-%m-%d')
+        date_to_dt = dt.strptime(date_to, '%Y-%m-%d')
+        period_days = (date_to_dt - date_from_dt).days + 1
+
+        # Get summary data with comparison to previous period
+        summary_query = """
+        WITH current_period AS (
+            SELECT
+                SUM(impressions) as total_impressions,
+                SUM(clicks) as total_clicks,
+                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
+                SUM(spend) as total_spend,
+                SAFE_DIVIDE(SUM(spend), SUM(clicks)) as avg_cpc,
+                COUNTIF(actions IS NOT NULL AND JSON_EXTRACT_SCALAR(actions, '$[0].value') IS NOT NULL) as total_conversions
+            FROM `mydigipal.meta_ads_v2.adsMetrics`
+            WHERE account_name IN UNNEST(@accounts)
+              AND date_start BETWEEN @date_from AND @date_to
+        ),
+        previous_period AS (
+            SELECT
+                SUM(impressions) as total_impressions,
+                SUM(clicks) as total_clicks,
+                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
+                SUM(spend) as total_spend,
+                SAFE_DIVIDE(SUM(spend), SUM(clicks)) as avg_cpc,
+                COUNTIF(actions IS NOT NULL AND JSON_EXTRACT_SCALAR(actions, '$[0].value') IS NOT NULL) as total_conversions
+            FROM `mydigipal.meta_ads_v2.adsMetrics`
+            WHERE account_name IN UNNEST(@accounts)
+              AND date_start BETWEEN DATE_SUB(CAST(@date_from AS DATE), INTERVAL @period_days DAY)
+                                  AND DATE_SUB(CAST(@date_from AS DATE), INTERVAL 1 DAY)
+        )
+        SELECT
+            COALESCE(c.total_impressions, 0) as total_impressions,
+            COALESCE(c.total_clicks, 0) as total_clicks,
+            COALESCE(c.avg_ctr, 0) as avg_ctr,
+            COALESCE(c.total_spend, 0) as total_spend,
+            COALESCE(c.avg_cpc, 0) as avg_cpc,
+            COALESCE(c.total_conversions, 0) as total_conversions,
+            ROUND(SAFE_DIVIDE((c.total_impressions - p.total_impressions), NULLIF(p.total_impressions, 0)) * 100, 1) as impressions_change,
+            ROUND(SAFE_DIVIDE((c.total_clicks - p.total_clicks), NULLIF(p.total_clicks, 0)) * 100, 1) as clicks_change,
+            ROUND(SAFE_DIVIDE((c.avg_ctr - p.avg_ctr), NULLIF(p.avg_ctr, 0)) * 100, 1) as ctr_change,
+            ROUND(SAFE_DIVIDE((c.total_spend - p.total_spend), NULLIF(p.total_spend, 0)) * 100, 1) as spend_change,
+            ROUND(SAFE_DIVIDE((c.avg_cpc - p.avg_cpc), NULLIF(p.avg_cpc, 0)) * 100, 1) as cpc_change,
+            ROUND(SAFE_DIVIDE((c.total_conversions - p.total_conversions), NULLIF(p.total_conversions, 0)) * 100, 1) as conversions_change
+        FROM current_period c, previous_period p
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("accounts", "STRING", accounts),
+                bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                bigquery.ScalarQueryParameter("date_to", "DATE", date_to),
+                bigquery.ScalarQueryParameter("period_days", "INT64", period_days)
+            ]
+        )
+
+        summary_result = client.query(summary_query, job_config=job_config).result()
+        summary = dict(next(summary_result))
+
+        # Get timeline data
+        timeline_query = """
+        SELECT
+            date_start as date,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SUM(spend) as spend
+        FROM `mydigipal.meta_ads_v2.adsMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+        GROUP BY date_start
+        ORDER BY date_start ASC
+        """
+
+        job_config_timeline = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("accounts", "STRING", accounts),
+                bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                bigquery.ScalarQueryParameter("date_to", "DATE", date_to)
+            ]
+        )
+
+        timeline_result = client.query(timeline_query, job_config=job_config_timeline).result()
+        timeline = [dict(row) for row in timeline_result]
+
+        # Get campaigns data
+        campaigns_query = """
+        SELECT
+            campaign_name,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
+            SUM(spend) as spend,
+            SAFE_DIVIDE(SUM(spend), SUM(clicks)) as cpc,
+            COUNTIF(actions IS NOT NULL) as conversions
+        FROM `mydigipal.meta_ads_v2.campaignMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+        GROUP BY campaign_name
+        ORDER BY spend DESC
+        LIMIT 50
+        """
+
+        campaigns_result = client.query(campaigns_query, job_config=job_config_timeline).result()
+        campaigns = [dict(row) for row in campaigns_result]
+
+        # Get conversions by type (simplified - counting actions)
+        conversions_query = """
+        SELECT
+            'Lead Form' as type,
+            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'lead') as count
+        FROM `mydigipal.meta_ads_v2.adsMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+          AND actions IS NOT NULL
+        UNION ALL
+        SELECT
+            'Link Click' as type,
+            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'link_click') as count
+        FROM `mydigipal.meta_ads_v2.adsMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+          AND actions IS NOT NULL
+        UNION ALL
+        SELECT
+            'Post Engagement' as type,
+            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'post_engagement') as count
+        FROM `mydigipal.meta_ads_v2.adsMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+          AND actions IS NOT NULL
+        ORDER BY count DESC
+        """
+
+        conversions_result = client.query(conversions_query, job_config=job_config_timeline).result()
+        conversions_by_type = [dict(row) for row in conversions_result if row['count'] > 0]
+
+        # If no conversions data, create placeholder
+        if not conversions_by_type:
+            conversions_by_type = [{'type': 'No conversions tracked', 'count': 0}]
+
+        return jsonify({
+            'summary': summary,
+            'timeline': timeline,
+            'campaigns': campaigns,
+            'conversions_by_type': conversions_by_type,
+            'accounts': accounts
+        })
+
+    except Exception as e:
+        print(f"Error fetching Meta Ads analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch Meta Ads data: {str(e)}"}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
