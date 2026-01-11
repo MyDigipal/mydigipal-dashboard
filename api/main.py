@@ -1167,6 +1167,152 @@ def get_ga4_analytics():
         return jsonify({"error": f"Failed to fetch GA4 data: {str(e)}"}), 500
 
 
+@app.route('/api/analytics/search-console')
+@cache.cached(timeout=600, query_string=True)
+def get_search_console_data():
+    """Get Search Console data for a specific client and date range"""
+    try:
+        client_id = request.args.get('client_id')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        if not client_id:
+            return jsonify({"error": "client_id is required"}), 400
+
+        # Convert client name to client_id format (lowercase, replace spaces with underscores)
+        client_id_formatted = client_id.lower().replace(' ', '_').replace('&', 'and').replace('-', '_')
+
+        # Build date filter
+        date_filter = ""
+        if date_from and date_to:
+            date_filter = f"AND date BETWEEN '{date_from}' AND '{date_to}'"
+        elif date_from:
+            date_filter = f"AND date >= '{date_from}'"
+        elif date_to:
+            date_filter = f"AND date <= '{date_to}'"
+
+        # Check if tables exist for this client
+        tables_query = f"""
+        SELECT table_name
+        FROM `mydigipal.search_console_v2.INFORMATION_SCHEMA.TABLES`
+        WHERE table_name LIKE '{client_id_formatted}_gsc_%'
+        """
+
+        tables_result = client.query(tables_query).result()
+        available_tables = [row['table_name'] for row in tables_result]
+
+        if not available_tables:
+            return jsonify({"error": f"No Search Console data found for client: {client_id}"}), 404
+
+        # Get timeline data (daily metrics)
+        timeline_query = f"""
+        SELECT
+            date,
+            SUM(clicks) as clicks,
+            SUM(impressions) as impressions,
+            AVG(ctr) * 100 as ctr,
+            AVG(position) as position
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
+        WHERE 1=1 {date_filter}
+        GROUP BY date
+        ORDER BY date ASC
+        """
+
+        timeline_results = client.query(timeline_query).result()
+        timeline = [dict(row) for row in timeline_results]
+
+        # Get top queries
+        queries_query = f"""
+        SELECT
+            query,
+            SUM(clicks) as clicks,
+            SUM(impressions) as impressions,
+            AVG(ctr) * 100 as ctr,
+            AVG(position) as position
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_query`
+        WHERE 1=1 {date_filter}
+        GROUP BY query
+        ORDER BY clicks DESC
+        LIMIT 100
+        """
+
+        queries_results = client.query(queries_query).result()
+        top_queries = [dict(row) for row in queries_results]
+
+        # Get top pages
+        pages_query = f"""
+        SELECT
+            page,
+            SUM(clicks) as clicks,
+            SUM(impressions) as impressions,
+            AVG(ctr) * 100 as ctr,
+            AVG(position) as position
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_page`
+        WHERE 1=1 {date_filter}
+        GROUP BY page
+        ORDER BY clicks DESC
+        LIMIT 100
+        """
+
+        pages_results = client.query(pages_query).result()
+        top_pages = [dict(row) for row in pages_results]
+
+        # Get device breakdown
+        device_query = f"""
+        SELECT
+            device,
+            SUM(clicks) as clicks,
+            SUM(impressions) as impressions,
+            AVG(ctr) * 100 as ctr,
+            AVG(position) as position
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_device`
+        WHERE 1=1 {date_filter}
+        GROUP BY device
+        ORDER BY clicks DESC
+        """
+
+        device_results = client.query(device_query).result()
+        devices = [dict(row) for row in device_results]
+
+        # Get overall summary
+        summary_query = f"""
+        SELECT
+            SUM(clicks) as total_clicks,
+            SUM(impressions) as total_impressions,
+            AVG(ctr) * 100 as avg_ctr,
+            AVG(position) as avg_position
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
+        WHERE 1=1 {date_filter}
+        """
+
+        summary_results = client.query(summary_query).result()
+        summary = [dict(row) for row in summary_results][0]
+
+        # Get domain name
+        domain_query = f"""
+        SELECT DISTINCT domain_name
+        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
+        LIMIT 1
+        """
+
+        domain_results = client.query(domain_query).result()
+        domain_name = [dict(row) for row in domain_results][0]['domain_name'] if domain_results.total_rows > 0 else None
+
+        return jsonify({
+            'timeline': timeline,
+            'top_queries': top_queries,
+            'top_pages': top_pages,
+            'devices': devices,
+            'summary': summary,
+            'domain_name': domain_name
+        })
+
+    except Exception as e:
+        print(f"Error fetching Search Console data: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch Search Console data: {str(e)}"}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)

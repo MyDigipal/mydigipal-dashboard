@@ -116,7 +116,13 @@ class AnalyticsManager {
                     this.renderGA4Report(data);
                     break;
                 case 'search-console':
-                    container.innerHTML = '<div class="coming-soon">📊 Search Console - Bientôt disponible</div>';
+                    // Use client_id for Search Console
+                    const scClientSelect = document.getElementById('analyticsClient');
+                    const scSelectedOption = scClientSelect.options[scClientSelect.selectedIndex];
+                    const scClientName = scSelectedOption.textContent.split('(')[0].trim();
+                    const scClientId = scSelectedOption.value;
+
+                    await this.renderSearchConsoleReport(scClientId, scClientName, dateFrom, dateTo);
                     break;
                 case 'multi':
                     container.innerHTML = '<div class="coming-soon">📊 Multi-Source - Bientôt disponible</div>';
@@ -1014,6 +1020,348 @@ class AnalyticsManager {
         });
 
         this.makeSortable('#ga4DemographicsTable');
+    }
+
+    // ==================== SEARCH CONSOLE FUNCTIONS ====================
+
+    async fetchSearchConsoleData(clientId, dateFrom, dateTo) {
+        const params = new URLSearchParams({
+            client_id: clientId,
+            date_from: dateFrom,
+            date_to: dateTo
+        });
+
+        const response = await fetch(`${API_URL}/api/analytics/search-console?${params}`);
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to fetch Search Console data');
+        }
+
+        return await response.json();
+    }
+
+    async renderSearchConsoleReport(clientId, clientName, dateFrom, dateTo) {
+        try {
+            const data = await this.fetchSearchConsoleData(clientId, dateFrom, dateTo);
+
+            const reportSection = document.getElementById('analyticsReportSection');
+            reportSection.innerHTML = `
+                <div class="report-header">
+                    <h2>📊 Search Console - ${clientName}</h2>
+                    <p class="report-subtitle">
+                        ${data.domain_name || 'Domain not found'} •
+                        ${new Date(dateFrom).toLocaleDateString('fr-FR')} - ${new Date(dateTo).toLocaleDateString('fr-FR')}
+                    </p>
+                </div>
+
+                <!-- Summary KPIs -->
+                <div class="kpi-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 30px;">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Total Clicks</div>
+                        <div class="kpi-value">${this.formatNumber(data.summary.total_clicks || 0)}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Total Impressions</div>
+                        <div class="kpi-value">${this.formatNumber(data.summary.total_impressions || 0)}</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Avg. CTR</div>
+                        <div class="kpi-value">${(data.summary.avg_ctr || 0).toFixed(2)}%</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Avg. Position</div>
+                        <div class="kpi-value">${(data.summary.avg_position || 0).toFixed(1)}</div>
+                    </div>
+                </div>
+
+                <!-- Timeline Chart -->
+                <div class="chart-container" style="margin-bottom: 30px;">
+                    <h3 style="margin-bottom: 15px;">Performance Timeline</h3>
+                    <canvas id="searchConsoleTimelineChart" height="80"></canvas>
+                </div>
+
+                <!-- Devices Chart & Table -->
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 30px; margin-bottom: 30px;">
+                    <div class="chart-container">
+                        <h3 style="margin-bottom: 15px;">Clicks by Device</h3>
+                        <canvas id="searchConsoleDevicesChart"></canvas>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 15px;">Device Performance</h3>
+                        <table class="analytics-table" id="searchConsoleDevicesTable">
+                            <thead>
+                                <tr>
+                                    <th>Device</th>
+                                    <th class="number">Clicks</th>
+                                    <th class="number">Impressions</th>
+                                    <th class="number">CTR</th>
+                                    <th class="number">Avg. Position</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top Queries Table -->
+                <div style="margin-bottom: 30px;">
+                    <h3 style="margin-bottom: 15px;">Top 100 Search Queries</h3>
+                    <table class="analytics-table" id="searchConsoleQueriesTable">
+                        <thead>
+                            <tr>
+                                <th>Query</th>
+                                <th class="number">Clicks</th>
+                                <th class="number">Impressions</th>
+                                <th class="number">CTR</th>
+                                <th class="number">Avg. Position</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <!-- Top Pages Table -->
+                <div>
+                    <h3 style="margin-bottom: 15px;">Top 100 Pages</h3>
+                    <table class="analytics-table" id="searchConsolePagesTable">
+                        <thead>
+                            <tr>
+                                <th>Page URL</th>
+                                <th class="number">Clicks</th>
+                                <th class="number">Impressions</th>
+                                <th class="number">CTR</th>
+                                <th class="number">Avg. Position</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            `;
+
+            // Render charts
+            this.renderSearchConsoleTimelineChart(data.timeline);
+            this.renderSearchConsoleDevicesChart(data.devices);
+
+            // Populate tables
+            this.populateSearchConsoleDevicesTable(data.devices);
+            this.populateSearchConsoleQueriesTable(data.top_queries);
+            this.populateSearchConsolePagesTable(data.top_pages);
+
+        } catch (error) {
+            console.error('Search Console error:', error);
+            document.getElementById('analyticsReportSection').innerHTML = `
+                <div class="error-message">
+                    <h3>⚠️ Error Loading Search Console Data</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
+        }
+    }
+
+    renderSearchConsoleTimelineChart(timeline) {
+        const ctx = document.getElementById('searchConsoleTimelineChart');
+        if (!ctx) return;
+
+        if (this.charts.searchConsoleTimeline) {
+            this.charts.searchConsoleTimeline.destroy();
+        }
+
+        this.charts.searchConsoleTimeline = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: timeline.map(d => new Date(d.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })),
+                datasets: [
+                    {
+                        label: 'Clicks',
+                        data: timeline.map(d => d.clicks),
+                        borderColor: '#0B6CD9',
+                        backgroundColor: 'rgba(11, 108, 217, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Impressions',
+                        data: timeline.map(d => d.impressions),
+                        borderColor: '#11845B',
+                        backgroundColor: 'rgba(17, 132, 91, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Avg. Position',
+                        data: timeline.map(d => d.position),
+                        borderColor: '#D5691B',
+                        backgroundColor: 'rgba(213, 105, 27, 0.1)',
+                        tension: 0.4,
+                        fill: false,
+                        yAxisID: 'y1',
+                        borderDash: [5, 5]
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += context.parsed.y.toFixed(1);
+                                } else {
+                                    label += context.parsed.y.toLocaleString('fr-FR');
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Clicks / Impressions'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        reverse: true,
+                        title: {
+                            display: true,
+                            text: 'Position (lower is better)'
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    renderSearchConsoleDevicesChart(devices) {
+        const ctx = document.getElementById('searchConsoleDevicesChart');
+        if (!ctx) return;
+
+        if (this.charts.searchConsoleDevices) {
+            this.charts.searchConsoleDevices.destroy();
+        }
+
+        const deviceColors = {
+            'DESKTOP': '#0B6CD9',
+            'MOBILE': '#11845B',
+            'TABLET': '#D5691B'
+        };
+
+        this.charts.searchConsoleDevices = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: devices.map(d => d.device),
+                datasets: [{
+                    data: devices.map(d => d.clicks),
+                    backgroundColor: devices.map(d => deviceColors[d.device] || '#6b7280')
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((context.parsed / total) * 100).toFixed(1);
+                                return `${context.label}: ${context.parsed.toLocaleString('fr-FR')} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    populateSearchConsoleDevicesTable(devices) {
+        const tbody = document.querySelector('#searchConsoleDevicesTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        devices.forEach(device => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${device.device}</td>
+                <td class="number">${this.formatNumber(device.clicks || 0)}</td>
+                <td class="number">${this.formatNumber(device.impressions || 0)}</td>
+                <td class="number">${(device.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${(device.position || 0).toFixed(1)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#searchConsoleDevicesTable');
+    }
+
+    populateSearchConsoleQueriesTable(queries) {
+        const tbody = document.querySelector('#searchConsoleQueriesTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        queries.forEach(query => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${query.query}</td>
+                <td class="number">${this.formatNumber(query.clicks || 0)}</td>
+                <td class="number">${this.formatNumber(query.impressions || 0)}</td>
+                <td class="number">${(query.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${(query.position || 0).toFixed(1)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#searchConsoleQueriesTable');
+    }
+
+    populateSearchConsolePagesTable(pages) {
+        const tbody = document.querySelector('#searchConsolePagesTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        pages.forEach(page => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${page.page}">
+                    ${page.page}
+                </td>
+                <td class="number">${this.formatNumber(page.clicks || 0)}</td>
+                <td class="number">${this.formatNumber(page.impressions || 0)}</td>
+                <td class="number">${(page.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${(page.position || 0).toFixed(1)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#searchConsolePagesTable');
     }
 
     formatNumber(num) {
