@@ -91,6 +91,7 @@
                 <button class="tab" data-tab="hours">⏱️ Heures</button>
                 <button class="tab" data-tab="clientdetail">🏢 Client</button>
                 <button class="tab" data-tab="planning">📋 Planning</button>
+                <button class="tab" data-tab="health">🏥 Data Health</button>
             </div>
 
             <!-- Clients Panel (Admin only) -->
@@ -349,6 +350,42 @@
                     <p>Aucun budget défini pour ce mois.<br>Ajoutez des budgets dans BigQuery pour les voir ici.</p>
                 </div>
             </div>
+
+            <!-- Data Health Panel -->
+            <div class="panel" id="panel-health">
+                <h2>🏥 Data Pipeline Health</h2>
+                <p class="health-subtitle">Last check: <span id="healthLastCheck">-</span></p>
+
+                <!-- Health Status Table -->
+                <table id="healthTable">
+                    <thead>
+                        <tr>
+                            <th>Source</th>
+                            <th class="text-center">Status</th>
+                            <th class="text-right">Latest Data</th>
+                            <th class="text-right">Lag</th>
+                            <th class="text-right">Rows (7d)</th>
+                            <th>Issues</th>
+                        </tr>
+                    </thead>
+                    <tbody id="healthTableBody">
+                        <tr>
+                            <td colspan="6" class="text-center">
+                                <div class="loading">
+                                    <div class="spinner"></div>
+                                    Chargement des données...
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <!-- Health Timeline Chart -->
+                <h3 style="margin-top: 2rem;">Historique (30 derniers jours)</h3>
+                <div class="chart-container">
+                    <canvas id="healthTimelineChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -363,6 +400,7 @@
     <script src="js/charts.js"></script>
     <script src="js/tabs.js"></script>
     <script src="js/export.js"></script>
+    <script src="js/health.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

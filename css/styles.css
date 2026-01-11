@@ -793,3 +793,46 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
   height: 300px;
 }
 
+/* Data Health Panel Styles */
+.health-subtitle {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+}
+
+#healthTable .status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+#healthTable .status-ok {
+    background: #d4edda;
+    color: #11845B;
+}
+
+#healthTable .status-warning {
+    background: #fff3cd;
+    color: #D5691B;
+}
+
+#healthTable .status-critical {
+    background: #f8d7da;
+    color: #dc2626;
+}
+
+#healthTable .text-center {
+    text-align: center;
+}
+
+#healthTable .text-right {
+    text-align: right;
+}
+
+#healthTable .issue-text {
+    color: #666;
+    font-size: 0.85rem;
+    font-style: italic;
+}

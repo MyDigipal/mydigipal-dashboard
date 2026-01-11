@@ -326,6 +326,9 @@ class DashboardApp {
         case 'planning':
           await this.loadPlanning();
           break;
+        case 'health':
+          await window.healthManager.loadHealth();
+          break;
       }
     } catch (error) {
       console.error(`Error loading tab ${tabId}:`, error);

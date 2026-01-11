@@ -555,7 +555,7 @@ def get_alerts():
 @cache.cached(timeout=300)
 def get_date_range():
     query = """
-    SELECT 
+    SELECT
       FORMAT_DATE('%Y-%m-%d', MIN(month)) as min_date,
       FORMAT_DATE('%Y-%m-%d', MAX(month)) as max_date
     FROM `mydigipal.reporting.vw_profitability`
@@ -564,6 +564,78 @@ def get_date_range():
     if rows:
         return jsonify(dict(rows[0]))
     return jsonify({"min_date": "2024-01-01", "max_date": "2025-12-31"})
+
+@app.route('/api/health/latest')
+@cache.cached(timeout=60)  # 1 minute cache for health data
+def get_health_latest():
+    """Get latest health check for all data sources."""
+    try:
+        query = """
+        WITH LatestCheck AS (
+          SELECT MAX(check_timestamp) as latest_timestamp
+          FROM `mydigipal.company.data_quality_logs`
+        )
+        SELECT
+          check_timestamp,
+          source_name,
+          latest_data_date,
+          days_lag,
+          row_count_last_7d,
+          row_count_avg_7d,
+          conversions_last_7d,
+          conversions_avg_7d,
+          status,
+          alert_reason
+        FROM `mydigipal.company.data_quality_logs`
+        WHERE check_timestamp = (SELECT latest_timestamp FROM LatestCheck)
+        ORDER BY
+          CASE status
+            WHEN 'CRITICAL' THEN 1
+            WHEN 'WARNING' THEN 2
+            WHEN 'OK' THEN 3
+          END,
+          source_name
+        """
+        rows = client.query(query).result()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        print(f"Error fetching health data: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": "Data quality table not found or empty"}), 404
+
+@app.route('/api/health/history')
+@cache.cached(timeout=300, query_string=True)  # 5 minute cache
+def get_health_history():
+    """Get health check history for specified number of days."""
+    try:
+        days = int(request.args.get('days', 30))
+
+        query = """
+        SELECT
+          check_timestamp,
+          source_name,
+          latest_data_date,
+          days_lag,
+          row_count_last_7d,
+          status,
+          alert_reason
+        FROM `mydigipal.company.data_quality_logs`
+        WHERE check_timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
+        ORDER BY check_timestamp DESC, source_name
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("days", "INT64", days)
+            ]
+        )
+
+        rows = client.query(query, job_config=job_config).result()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        print(f"Error fetching health history: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": "Failed to fetch health history"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
