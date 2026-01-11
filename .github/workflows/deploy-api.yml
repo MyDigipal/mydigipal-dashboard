@@ -26,10 +26,16 @@ jobs:
         with:
           project_id: mydigipal
 
-      - name: Build Docker image
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker gcr.io
+
+      - name: Build and push Docker image
         run: |
           cd api
-          gcloud builds submit --tag gcr.io/mydigipal/dashboard-api --project mydigipal
+          docker build -t gcr.io/mydigipal/dashboard-api:${{ github.sha }} .
+          docker tag gcr.io/mydigipal/dashboard-api:${{ github.sha }} gcr.io/mydigipal/dashboard-api:latest
+          docker push gcr.io/mydigipal/dashboard-api:${{ github.sha }}
+          docker push gcr.io/mydigipal/dashboard-api:latest
 
       - name: Deploy to Cloud Run
         run: |
