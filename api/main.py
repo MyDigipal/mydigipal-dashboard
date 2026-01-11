@@ -45,27 +45,60 @@ def get_clients():
         filters.append("month <= @date_to")
         params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
 
+    # Build filter clauses for timesheet and invoice CTEs
+    timesheet_filters = []
+    invoice_filters = []
+
+    if date_from:
+        timesheet_filters.append("date >= @date_from")
+        invoice_filters.append("month >= @date_from")
+    if date_to:
+        timesheet_filters.append("date <= @date_to")
+        invoice_filters.append("month <= @date_to")
+
     # Filter out Paul's internal hours if requested
     if not include_paul:
-        filters.append("NOT (employee_id = 'paul' AND client_id = 'mydigipal')")
+        timesheet_filters.append("NOT (employee_id = 'paul' AND client_id = 'mydigipal')")
 
-    where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+    timesheet_where = "WHERE " + " AND ".join(timesheet_filters) if timesheet_filters else ""
+    invoice_where = "WHERE " + " AND ".join(invoice_filters) if invoice_filters else ""
 
-    # v2.2: Use materialized view for 50-80% faster queries
+    # Original query using FULL OUTER JOIN (materialized view not yet created)
     query = f"""
+    WITH timesheet_data AS (
+      SELECT
+        DATE_TRUNC(date, MONTH) as month,
+        client_id,
+        SUM(hours) as hours,
+        SUM(cost_gbp) as cost_gbp
+      FROM `mydigipal.company.timesheets_with_cost`
+      {timesheet_where}
+      GROUP BY 1, 2
+    ),
+    invoice_data AS (
+      SELECT
+        month,
+        client_id,
+        SUM(real_revenue_gbp) as revenue_gbp
+      FROM `mydigipal.company.invoices_fct`
+      {invoice_where}
+      GROUP BY 1, 2
+    )
     SELECT
-      client_id,
-      client_name,
-      ROUND(SUM(hours), 0) AS hours,
-      ROUND(SUM(cost_gbp), 0) AS cost,
-      ROUND(SUM(revenue_gbp), 0) AS revenue,
-      ROUND(SUM(profit_gbp), 0) AS profit,
-      ROUND(SUM(profit_gbp) / NULLIF(SUM(revenue_gbp), 0) * 100, 0) AS margin
-    FROM `mydigipal.company.mv_client_profitability`
-    {where_clause}
+      COALESCE(t.client_id, i.client_id) as client_id,
+      c.client_name,
+      ROUND(SUM(COALESCE(t.hours, 0)), 0) as hours,
+      ROUND(SUM(COALESCE(t.cost_gbp, 0)), 0) as cost,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)), 0) as revenue,
+      ROUND(SUM(COALESCE(i.revenue_gbp, 0)) - SUM(COALESCE(t.cost_gbp, 0)), 0) as profit,
+      ROUND((SUM(COALESCE(i.revenue_gbp, 0)) - SUM(COALESCE(t.cost_gbp, 0))) / NULLIF(SUM(COALESCE(i.revenue_gbp, 0)), 0) * 100, 0) as margin
+    FROM timesheet_data t
+    FULL OUTER JOIN invoice_data i ON t.client_id = i.client_id AND t.month = i.month
+    LEFT JOIN `mydigipal.company.clients_dim` c ON COALESCE(t.client_id, i.client_id) = c.client_id
+    WHERE COALESCE(t.client_id, i.client_id) IS NOT NULL
     GROUP BY 1, 2
-    HAVING SUM(revenue_gbp) > 0 OR SUM(hours) > 100
-    ORDER BY 6 DESC
+    HAVING SUM(COALESCE(i.revenue_gbp, 0)) > 0 OR SUM(COALESCE(t.hours, 0)) > 100
+    ORDER BY profit DESC
     """
 
     job_config = bigquery.QueryJobConfig(query_parameters=params) if params else None
@@ -1002,6 +1035,131 @@ def get_google_ads_analytics():
         print(f"Error fetching Google Ads analytics: {str(e)}")
         traceback.print_exc()
         return jsonify({"error": f"Failed to fetch Google Ads data: {str(e)}"}), 500
+
+
+@app.route('/api/analytics/ga4')
+@cache.cached(timeout=300, query_string=True)
+def get_ga4_analytics():
+    """Get Google Analytics 4 data for a specific property"""
+    try:
+        property_name = request.args.get('property')
+        date_from = request.args.get('date_from', '2024-01-01')
+        date_to = request.args.get('date_to', datetime.now().strftime('%Y-%m-%d'))
+
+        if not property_name:
+            return jsonify({"error": "Property name is required"}), 400
+
+        # Convert date format for GA4 (YYYYMMDD)
+        date_from_formatted = datetime.strptime(date_from, '%Y-%m-%d').strftime('%Y%m%d')
+        date_to_formatted = datetime.strptime(date_to, '%Y-%m-%d').strftime('%Y%m%d')
+
+        # Query parameters
+        job_config = bigquery.QueryJobConfig(query_parameters=[
+            bigquery.ScalarQueryParameter("property_name", "STRING", property_name),
+            bigquery.ScalarQueryParameter("date_from", "STRING", date_from_formatted),
+            bigquery.ScalarQueryParameter("date_to", "STRING", date_to_formatted)
+        ])
+
+        # Get timeline data (aggregate duplicates)
+        timeline_query = """
+        SELECT
+            date,
+            SUM(CAST(sessions AS INT64)) as sessions,
+            SUM(CAST(totalUsers AS INT64)) as users,
+            SUM(CAST(screenPageViews AS INT64)) as pageviews,
+            SUM(CAST(conversions AS INT64)) as conversions,
+            AVG(bounceRate) as bounce_rate,
+            AVG(engagementRate) as engagement_rate
+        FROM `mydigipal.googleAnalytics_v2.date`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+        GROUP BY date
+        ORDER BY date
+        """
+
+        timeline_result = client.query(timeline_query, job_config=job_config).result()
+        timeline = [dict(row) for row in timeline_result]
+
+        # Calculate summary
+        summary = {
+            'sessions': sum(row['sessions'] for row in timeline),
+            'users': sum(row['users'] for row in timeline),
+            'pageviews': sum(row['pageviews'] for row in timeline),
+            'conversions': sum(row['conversions'] for row in timeline),
+            'bounce_rate': sum(row['bounce_rate'] or 0 for row in timeline) / len(timeline) if timeline else 0,
+            'engagement_rate': sum(row['engagement_rate'] or 0 for row in timeline) / len(timeline) if timeline else 0
+        }
+
+        # Get channel breakdown
+        channels_query = """
+        SELECT
+            firstUserDefaultChannelGroup as channel,
+            SUM(CAST(sessions AS INT64)) as sessions,
+            SUM(CAST(totalUsers AS INT64)) as users,
+            SUM(CAST(screenPageViews AS INT64)) as pageviews,
+            SUM(CAST(conversions AS INT64)) as conversions
+        FROM `mydigipal.googleAnalytics_v2.sessionChannel`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+        GROUP BY firstUserDefaultChannelGroup
+        ORDER BY sessions DESC
+        LIMIT 10
+        """
+
+        channels_result = client.query(channels_query, job_config=job_config).result()
+        channels = [dict(row) for row in channels_result]
+
+        # Get top landing pages
+        landing_pages_query = """
+        SELECT
+            landingPage as page,
+            SUM(CAST(sessions AS INT64)) as sessions,
+            SUM(CAST(totalUsers AS INT64)) as users,
+            AVG(bounceRate) as bounce_rate,
+            AVG(engagementRate) as engagement_rate
+        FROM `mydigipal.googleAnalytics_v2.landingPage`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+          AND landingPage IS NOT NULL
+        GROUP BY landingPage
+        ORDER BY sessions DESC
+        LIMIT 20
+        """
+
+        landing_pages_result = client.query(landing_pages_query, job_config=job_config).result()
+        landing_pages = [dict(row) for row in landing_pages_result]
+
+        # Get demographics (device category, country)
+        demographics_query = """
+        SELECT
+            deviceCategory as device,
+            country,
+            SUM(CAST(sessions AS INT64)) as sessions,
+            SUM(CAST(totalUsers AS INT64)) as users
+        FROM `mydigipal.googleAnalytics_v2.demographics`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+        GROUP BY deviceCategory, country
+        ORDER BY sessions DESC
+        LIMIT 20
+        """
+
+        demographics_result = client.query(demographics_query, job_config=job_config).result()
+        demographics = [dict(row) for row in demographics_result]
+
+        return jsonify({
+            'summary': summary,
+            'timeline': timeline,
+            'channels': channels,
+            'landing_pages': landing_pages,
+            'demographics': demographics,
+            'property_name': property_name
+        })
+
+    except Exception as e:
+        print(f"Error fetching GA4 analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch GA4 data: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

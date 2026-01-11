@@ -107,7 +107,13 @@ class AnalyticsManager {
                     this.renderGoogleAdsReport(data);
                     break;
                 case 'ga4':
-                    container.innerHTML = '<div class="coming-soon">📊 Google Analytics 4 - Bientôt disponible</div>';
+                    // Use client name or alternative name as GA4 property
+                    const clientSelect = document.getElementById('analyticsClient');
+                    const selectedOption = clientSelect.options[clientSelect.selectedIndex];
+                    const clientName = selectedOption.textContent.split('(')[0].trim();
+
+                    data = await this.fetchGA4Data(clientName, dateFrom, dateTo);
+                    this.renderGA4Report(data);
                     break;
                 case 'search-console':
                     container.innerHTML = '<div class="coming-soon">📊 Search Console - Bientôt disponible</div>';
@@ -742,6 +748,272 @@ class AnalyticsManager {
                 }
             }
         });
+    }
+
+    async fetchGA4Data(property, dateFrom, dateTo) {
+        const url = `${CONFIG.API_URL}/api/analytics/ga4?property=${encodeURIComponent(property)}&date_from=${dateFrom}&date_to=${dateTo}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch GA4 data');
+        return await response.json();
+    }
+
+    renderGA4Report(data) {
+        const container = document.getElementById('analyticsReportContainer');
+
+        // Destroy existing charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart && chart.destroy) {
+                chart.destroy();
+            }
+        });
+        this.charts = {};
+
+        const reportContent = document.getElementById('analyticsReportContent');
+        reportContent.innerHTML = `
+            <div class="analytics-report">
+                <!-- Summary Cards -->
+                <div class="analytics-summary">
+                    <div class="summary-card">
+                        <h4>Sessions</h4>
+                        <div class="metric-value">${this.formatNumber(data.summary.sessions)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <h4>Utilisateurs</h4>
+                        <div class="metric-value">${this.formatNumber(data.summary.users)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <h4>Pages vues</h4>
+                        <div class="metric-value">${this.formatNumber(data.summary.pageviews)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <h4>Conversions</h4>
+                        <div class="metric-value">${this.formatNumber(data.summary.conversions)}</div>
+                    </div>
+                    <div class="summary-card">
+                        <h4>Taux rebond</h4>
+                        <div class="metric-value">${(data.summary.bounce_rate || 0).toFixed(1)}%</div>
+                    </div>
+                    <div class="summary-card">
+                        <h4>Engagement</h4>
+                        <div class="metric-value">${(data.summary.engagement_rate || 0).toFixed(1)}%</div>
+                    </div>
+                </div>
+
+                <!-- Timeline Chart -->
+                <div class="analytics-section">
+                    <h3>Évolution dans le temps</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="ga4TimelineChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Channels Chart & Table -->
+                <div class="analytics-section">
+                    <h3>Acquisition par canal</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="ga4ChannelsChart"></canvas>
+                        </div>
+                        <div style="overflow-x: auto;">
+                            <table class="analytics-table" id="ga4ChannelsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Canal</th>
+                                        <th>Sessions</th>
+                                        <th>Utilisateurs</th>
+                                        <th>Conversions</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Landing Pages -->
+                <div class="analytics-section">
+                    <h3>Pages d'atterrissage principales</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="analytics-table" id="ga4LandingPagesTable">
+                            <thead>
+                                <tr>
+                                    <th>Page</th>
+                                    <th>Sessions</th>
+                                    <th>Utilisateurs</th>
+                                    <th>Taux rebond</th>
+                                    <th>Engagement</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Demographics -->
+                <div class="analytics-section">
+                    <h3>Audience (Pays & Appareil)</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="analytics-table" id="ga4DemographicsTable">
+                            <thead>
+                                <tr>
+                                    <th>Pays</th>
+                                    <th>Appareil</th>
+                                    <th>Sessions</th>
+                                    <th>Utilisateurs</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Render charts & tables
+        setTimeout(() => {
+            this.renderGA4TimelineChart(data.timeline);
+            this.renderGA4ChannelsChart(data.channels);
+            this.populateGA4ChannelsTable(data.channels);
+            this.populateGA4LandingPagesTable(data.landing_pages);
+            this.populateGA4DemographicsTable(data.demographics);
+        }, 100);
+    }
+
+    renderGA4TimelineChart(timeline) {
+        const ctx = document.getElementById('ga4TimelineChart');
+        if (!ctx) return;
+
+        this.charts.ga4Timeline = new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: timeline.map(d => {
+                    const dateStr = d.date;
+                    const year = dateStr.substring(0, 4);
+                    const month = dateStr.substring(4, 6);
+                    const day = dateStr.substring(6, 8);
+                    return new Date(`${year}-${month}-${day}`).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' });
+                }),
+                datasets: [
+                    {
+                        label: 'Sessions',
+                        data: timeline.map(d => d.sessions),
+                        borderColor: '#0B6CD9',
+                        backgroundColor: 'rgba(11, 108, 217, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Utilisateurs',
+                        data: timeline.map(d => d.users),
+                        borderColor: '#11845B',
+                        backgroundColor: 'rgba(17, 132, 91, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Nombre' }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' }
+                }
+            }
+        });
+    }
+
+    renderGA4ChannelsChart(channels) {
+        const ctx = document.getElementById('ga4ChannelsChart');
+        if (!ctx) return;
+
+        this.charts.ga4Channels = new Chart(ctx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: channels.map(c => c.channel),
+                datasets: [{
+                    data: channels.map(c => c.sessions),
+                    backgroundColor: ['#0B6CD9', '#11845B', '#D5691B', '#8b5cf6', '#DC2626', '#ec4899', '#14b8a6', '#f59e0b']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            padding: 15,
+                            font: { family: 'Inter', size: 12 }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    populateGA4ChannelsTable(channels) {
+        const tbody = document.querySelector('#ga4ChannelsTable tbody');
+        if (!tbody) return;
+
+        channels.forEach(channel => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${channel.channel || 'N/A'}</td>
+                <td class="number">${this.formatNumber(channel.sessions || 0)}</td>
+                <td class="number">${this.formatNumber(channel.users || 0)}</td>
+                <td class="number">${this.formatNumber(channel.conversions || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#ga4ChannelsTable');
+    }
+
+    populateGA4LandingPagesTable(pages) {
+        const tbody = document.querySelector('#ga4LandingPagesTable tbody');
+        if (!tbody) return;
+
+        pages.slice(0, 20).forEach(page => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${page.page || 'N/A'}</td>
+                <td class="number">${this.formatNumber(page.sessions || 0)}</td>
+                <td class="number">${this.formatNumber(page.users || 0)}</td>
+                <td class="number">${(page.bounce_rate || 0).toFixed(1)}%</td>
+                <td class="number">${(page.engagement_rate || 0).toFixed(1)}%</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#ga4LandingPagesTable');
+    }
+
+    populateGA4DemographicsTable(demographics) {
+        const tbody = document.querySelector('#ga4DemographicsTable tbody');
+        if (!tbody) return;
+
+        demographics.slice(0, 20).forEach(demo => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${demo.country || 'N/A'}</td>
+                <td>${demo.device || 'N/A'}</td>
+                <td class="number">${this.formatNumber(demo.sessions || 0)}</td>
+                <td class="number">${this.formatNumber(demo.users || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#ga4DemographicsTable');
     }
 
     formatNumber(num) {
