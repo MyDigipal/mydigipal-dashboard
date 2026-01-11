@@ -690,21 +690,56 @@ def get_analytics_clients():
             active,
             google_ads_accounts,
             meta_ads_accounts,
-            linkedin_ads_accounts
+            linkedin_ads_accounts,
+            ga4_properties,
+            gsc_domains
         FROM `mydigipal.company.client_accounts_mapping`
         WHERE active = TRUE
           AND (
             google_ads_accounts IS NOT NULL
             OR meta_ads_accounts IS NOT NULL
             OR linkedin_ads_accounts IS NOT NULL
+            OR ga4_properties IS NOT NULL
+            OR gsc_domains IS NOT NULL
           )
         ORDER BY company_name ASC
         """
 
         results = client.query(query).result()
-        clients = [dict(row) for row in results]
+        clients_list = []
+        
+        for row in results:
+            client_data = dict(row)
+            
+            # Parse pipe-separated account strings into arrays for easier frontend handling
+            if client_data.get('google_ads_accounts'):
+                client_data['google_ads_accounts_list'] = [acc.strip() for acc in client_data['google_ads_accounts'].split('|')]
+            else:
+                client_data['google_ads_accounts_list'] = []
+                
+            if client_data.get('meta_ads_accounts'):
+                client_data['meta_ads_accounts_list'] = [acc.strip() for acc in client_data['meta_ads_accounts'].split('|')]
+            else:
+                client_data['meta_ads_accounts_list'] = []
+                
+            if client_data.get('linkedin_ads_accounts'):
+                client_data['linkedin_ads_accounts_list'] = [acc.strip() for acc in client_data['linkedin_ads_accounts'].split('|')]
+            else:
+                client_data['linkedin_ads_accounts_list'] = []
+                
+            if client_data.get('ga4_properties'):
+                client_data['ga4_properties_list'] = [prop.strip() for prop in client_data['ga4_properties'].split('|')]
+            else:
+                client_data['ga4_properties_list'] = []
+                
+            if client_data.get('gsc_domains'):
+                client_data['gsc_domains_list'] = [domain.strip() for domain in client_data['gsc_domains'].split('|')]
+            else:
+                client_data['gsc_domains_list'] = []
+            
+            clients_list.append(client_data)
 
-        return jsonify(clients)
+        return jsonify(clients_list)
     except Exception as e:
         print(f"Error fetching analytics clients: {str(e)}")
         traceback.print_exc()
@@ -1170,143 +1205,122 @@ def get_ga4_analytics():
 @app.route('/api/analytics/search-console')
 @cache.cached(timeout=600, query_string=True)
 def get_search_console_data():
-    """Get Search Console data for a specific client and date range"""
+    """Get Search Console data for a specific client and date range using global tables"""
     try:
         client_id = request.args.get('client_id')
         date_from = request.args.get('date_from')
         date_to = request.args.get('date_to')
+        domains_filter = request.args.get('domains')  # Optional: comma-separated list
 
         if not client_id:
             return jsonify({"error": "client_id is required"}), 400
 
-        # Convert client name to client_id format (lowercase, replace spaces with underscores)
-        client_id_formatted = client_id.lower().replace(' ', '_').replace('&', 'and').replace('-', '_')
+        # Get client mapping
+        mapping_query = """
+        SELECT gsc_domains, company_name
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE client_id = @client_id
+        """
+        job_config = bigquery.QueryJobConfig(query_parameters=[bigquery.ScalarQueryParameter("client_id", "STRING", client_id)])
+        mapping_result = client.query(mapping_query, job_config=job_config).result()
+        mapping_row = next(mapping_result, None)
+
+        if not mapping_row or not mapping_row.gsc_domains:
+            return jsonify({"error": f"No Search Console domains found for client: {client_id}"}), 404
+
+        available_domains = [domain.strip() for domain in mapping_row.gsc_domains.split('|')]
+        
+        if domains_filter:
+            requested_domains = [d.strip() for d in domains_filter.split(',')]
+            domains_to_query = [d for d in requested_domains if d in available_domains]
+            if not domains_to_query:
+                return jsonify({"error": "None of the requested domains are available"}), 400
+        else:
+            domains_to_query = available_domains
 
         # Build date filter
+        date_params = []
         date_filter = ""
         if date_from and date_to:
-            date_filter = f"AND date BETWEEN '{date_from}' AND '{date_to}'"
+            date_filter = "AND date BETWEEN @date_from AND @date_to"
+            date_params.extend([bigquery.ScalarQueryParameter("date_from", "DATE", date_from), bigquery.ScalarQueryParameter("date_to", "DATE", date_to)])
         elif date_from:
-            date_filter = f"AND date >= '{date_from}'"
+            date_filter = "AND date >= @date_from"
+            date_params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
         elif date_to:
-            date_filter = f"AND date <= '{date_to}'"
+            date_filter = "AND date <= @date_to"
+            date_params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
 
-        # Check if tables exist for this client
-        tables_query = f"""
-        SELECT table_name
-        FROM `mydigipal.search_console_v2.INFORMATION_SCHEMA.TABLES`
-        WHERE table_name LIKE '{client_id_formatted}_gsc_%'
-        """
+        domains_list_str = ", ".join([f"'{d}'" for d in domains_to_query])
+        domains_filter_sql = f"AND domain_name IN ({domains_list_str})"
+        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", client_id)] + date_params
+        job_config = bigquery.QueryJobConfig(query_parameters=query_params)
 
-        tables_result = client.query(tables_query).result()
-        available_tables = [row['table_name'] for row in tables_result]
-
-        if not available_tables:
-            return jsonify({"error": f"No Search Console data found for client: {client_id}"}), 404
-
-        # Get timeline data (daily metrics)
+        # Timeline
         timeline_query = f"""
-        SELECT
-            date,
-            SUM(clicks) as clicks,
-            SUM(impressions) as impressions,
-            AVG(ctr) * 100 as ctr,
-            AVG(position) as position
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
-        WHERE 1=1 {date_filter}
-        GROUP BY date
-        ORDER BY date ASC
+        SELECT date, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
+        FROM `mydigipal.marketing_data.gsc_date`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        GROUP BY date ORDER BY date ASC
         """
+        timeline = [dict(row) for row in client.query(timeline_query, job_config=job_config).result()]
 
-        timeline_results = client.query(timeline_query).result()
-        timeline = [dict(row) for row in timeline_results]
-
-        # Get top queries
+        # Top queries
         queries_query = f"""
-        SELECT
-            query,
-            SUM(clicks) as clicks,
-            SUM(impressions) as impressions,
-            AVG(ctr) * 100 as ctr,
-            AVG(position) as position
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_query`
-        WHERE 1=1 {date_filter}
-        GROUP BY query
-        ORDER BY clicks DESC
-        LIMIT 100
+        SELECT query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
+        FROM `mydigipal.marketing_data.gsc_date_query`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        GROUP BY query ORDER BY clicks DESC LIMIT 100
         """
+        top_queries = [dict(row) for row in client.query(queries_query, job_config=job_config).result()]
 
-        queries_results = client.query(queries_query).result()
-        top_queries = [dict(row) for row in queries_results]
-
-        # Get top pages
+        # Top pages
         pages_query = f"""
-        SELECT
-            page,
-            SUM(clicks) as clicks,
-            SUM(impressions) as impressions,
-            AVG(ctr) * 100 as ctr,
-            AVG(position) as position
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_page`
-        WHERE 1=1 {date_filter}
-        GROUP BY page
-        ORDER BY clicks DESC
-        LIMIT 100
+        SELECT page, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
+        FROM `mydigipal.marketing_data.gsc_date_page`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        GROUP BY page ORDER BY clicks DESC LIMIT 100
         """
+        top_pages = [dict(row) for row in client.query(pages_query, job_config=job_config).result()]
 
-        pages_results = client.query(pages_query).result()
-        top_pages = [dict(row) for row in pages_results]
-
-        # Get device breakdown
+        # Devices
         device_query = f"""
-        SELECT
-            device,
-            SUM(clicks) as clicks,
-            SUM(impressions) as impressions,
-            AVG(ctr) * 100 as ctr,
-            AVG(position) as position
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date_device`
-        WHERE 1=1 {date_filter}
-        GROUP BY device
-        ORDER BY clicks DESC
+        SELECT device, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
+        FROM `mydigipal.marketing_data.gsc_date_device`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        GROUP BY device ORDER BY clicks DESC
         """
+        devices = [dict(row) for row in client.query(device_query, job_config=job_config).result()]
 
-        device_results = client.query(device_query).result()
-        devices = [dict(row) for row in device_results]
+        # Countries
+        country_query = f"""
+        SELECT country, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
+        FROM `mydigipal.marketing_data.gsc_date_country`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        GROUP BY country ORDER BY clicks DESC LIMIT 20
+        """
+        countries = [dict(row) for row in client.query(country_query, job_config=job_config).result()]
 
-        # Get overall summary
+        # Summary
         summary_query = f"""
-        SELECT
-            SUM(clicks) as total_clicks,
-            SUM(impressions) as total_impressions,
-            AVG(ctr) * 100 as avg_ctr,
-            AVG(position) as avg_position
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
-        WHERE 1=1 {date_filter}
+        SELECT SUM(clicks) as total_clicks, SUM(impressions) as total_impressions, AVG(ctr) * 100 as avg_ctr, AVG(position) as avg_position
+        FROM `mydigipal.marketing_data.gsc_date`
+        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         """
-
-        summary_results = client.query(summary_query).result()
-        summary = [dict(row) for row in summary_results][0]
-
-        # Get domain name
-        domain_query = f"""
-        SELECT DISTINCT domain_name
-        FROM `mydigipal.search_console_v2.{client_id_formatted}_gsc_date`
-        LIMIT 1
-        """
-
-        domain_results = client.query(domain_query).result()
-        domain_name = [dict(row) for row in domain_results][0]['domain_name'] if domain_results.total_rows > 0 else None
+        summary_results = client.query(summary_query, job_config=job_config).result()
+        summary = [dict(row) for row in summary_results][0] if summary_results.total_rows > 0 else {}
 
         return jsonify({
+            'summary': summary,
             'timeline': timeline,
             'top_queries': top_queries,
             'top_pages': top_pages,
             'devices': devices,
-            'summary': summary,
-            'domain_name': domain_name
+            'countries': countries,
+            'domains': domains_to_query,
+            'available_domains': available_domains,
+            'client_name': mapping_row.company_name
         })
-
     except Exception as e:
         print(f"Error fetching Search Console data: {str(e)}")
         traceback.print_exc()
