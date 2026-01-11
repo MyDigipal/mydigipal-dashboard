@@ -847,6 +847,163 @@ def get_meta_ads_analytics():
         return jsonify({"error": f"Failed to fetch Meta Ads data: {str(e)}"}), 500
 
 
+@app.route('/api/analytics/google-ads')
+@cache.cached(timeout=600, query_string=True)
+def get_google_ads_analytics():
+    try:
+        client_id = request.args.get('client_id')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        if not client_id or not date_from or not date_to:
+            return jsonify({"error": "Missing parameters"}), 400
+
+        # Get client's Google Ads accounts from mapping
+        mapping_query = """
+        SELECT google_ads_accounts
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE client_id = @client_id
+        LIMIT 1
+        """
+
+        job_config_mapping = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
+            ]
+        )
+
+        mapping_result = client.query(mapping_query, job_config=job_config_mapping).result()
+        mapping_row = next(mapping_result, None)
+
+        if not mapping_row or not mapping_row['google_ads_accounts']:
+            return jsonify({"error": "No Google Ads accounts found for this client"}), 404
+
+        # Parse accounts (pipe-separated)
+        accounts = [acc.strip() for acc in mapping_row['google_ads_accounts'].split('|')]
+
+        # Get summary data
+        summary_query = """
+        SELECT
+            SUM(impressions) as total_impressions,
+            SUM(clicks) as total_clicks,
+            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
+            SUM(cost) as total_cost,
+            SAFE_DIVIDE(SUM(cost), SUM(clicks)) as avg_cpc,
+            SUM(conversions) as total_conversions,
+            SUM(conversions_value) as total_conversion_value,
+            SAFE_DIVIDE(SUM(cost), SUM(conversions)) as cost_per_conversion
+        FROM `mydigipal.googleAds_v2.campaignPerformance`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("accounts", "STRING", accounts),
+                bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                bigquery.ScalarQueryParameter("date_to", "DATE", date_to)
+            ]
+        )
+
+        summary_result = client.query(summary_query, job_config=job_config).result()
+        summary_row = next(summary_result, None)
+        summary = dict(summary_row) if summary_row else {}
+
+        # Get timeline data (daily aggregates)
+        timeline_query = """
+        SELECT
+            PARSE_DATE('%Y-%m-%d', date) as date,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SUM(cost) as cost
+        FROM `mydigipal.googleAds_v2.campaignPerformance`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+        GROUP BY date
+        ORDER BY date ASC
+        """
+
+        timeline_result = client.query(timeline_query, job_config=job_config).result()
+        timeline = [dict(row) for row in timeline_result]
+
+        # Get campaigns data
+        campaigns_query = """
+        SELECT
+            campaign_name,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
+            SUM(cost) as cost,
+            SAFE_DIVIDE(SUM(cost), SUM(clicks)) as cpc,
+            SUM(conversions) as conversions,
+            SUM(conversions_value) as conversion_value
+        FROM `mydigipal.googleAds_v2.campaignPerformance`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+        GROUP BY campaign_name
+        ORDER BY cost DESC
+        LIMIT 50
+        """
+
+        campaigns_result = client.query(campaigns_query, job_config=job_config).result()
+        campaigns = [dict(row) for row in campaigns_result]
+
+        # Get keywords data
+        keywords_query = """
+        SELECT
+            keyword_text,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
+            SUM(cost) as cost,
+            SAFE_DIVIDE(SUM(cost), SUM(clicks)) as cpc,
+            SUM(conversions) as conversions
+        FROM `mydigipal.googleAds_v2.keywordPerformance`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+        GROUP BY keyword_text
+        ORDER BY clicks DESC
+        LIMIT 50
+        """
+
+        keywords_result = client.query(keywords_query, job_config=job_config).result()
+        keywords = [dict(row) for row in keywords_result]
+
+        # Get conversions by type
+        conversions_query = """
+        SELECT
+            conversion_action_name as type,
+            CAST(SUM(conversions) AS INT64) as count,
+            SUM(conversions_value) as value
+        FROM `mydigipal.googleAds_v2.campaignPerformanceWithConversionType`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+          AND conversions > 0
+        GROUP BY conversion_action_name
+        ORDER BY count DESC
+        """
+
+        conversions_result = client.query(conversions_query, job_config=job_config).result()
+        conversions_by_type = [dict(row) for row in conversions_result if row['count'] > 0]
+
+        if not conversions_by_type:
+            conversions_by_type = [{'type': 'No conversions tracked', 'count': 0, 'value': 0}]
+
+        return jsonify({
+            'summary': summary,
+            'timeline': timeline,
+            'campaigns': campaigns,
+            'keywords': keywords,
+            'conversions_by_type': conversions_by_type,
+            'accounts': accounts
+        })
+
+    except Exception as e:
+        print(f"Error fetching Google Ads analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch Google Ads data: {str(e)}"}), 500
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
