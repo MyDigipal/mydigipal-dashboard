@@ -1243,17 +1243,17 @@ def get_search_console_data():
         date_filter = ""
         if date_from and date_to:
             date_filter = "AND date BETWEEN @date_from AND @date_to"
-            date_params.extend([bigquery.ScalarQueryParameter("date_from", "DATE", date_from), bigquery.ScalarQueryParameter("date_to", "DATE", date_to)])
+            date_params.extend([bigquery.ScalarQueryParameter("date_from", "STRING", date_from), bigquery.ScalarQueryParameter("date_to", "STRING", date_to)])
         elif date_from:
             date_filter = "AND date >= @date_from"
-            date_params.append(bigquery.ScalarQueryParameter("date_from", "DATE", date_from))
+            date_params.append(bigquery.ScalarQueryParameter("date_from", "STRING", date_from))
         elif date_to:
             date_filter = "AND date <= @date_to"
-            date_params.append(bigquery.ScalarQueryParameter("date_to", "DATE", date_to))
+            date_params.append(bigquery.ScalarQueryParameter("date_to", "STRING", date_to))
 
         domains_list_str = ", ".join([f"'{d}'" for d in domains_to_query])
         domains_filter_sql = f"AND domain_name IN ({domains_list_str})"
-        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", client_id)] + date_params
+        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", mapping_row.company_name)] + date_params
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
 
         # Timeline
