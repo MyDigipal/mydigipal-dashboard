@@ -951,7 +951,7 @@ def get_google_ads_analytics():
         # Get keywords data
         keywords_query = """
         SELECT
-            keyword_text,
+            keyword as keyword_text,
             SUM(impressions) as impressions,
             SUM(clicks) as clicks,
             SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
@@ -961,7 +961,7 @@ def get_google_ads_analytics():
         FROM `mydigipal.googleAds_v2.keywordPerformance`
         WHERE account IN UNNEST(@accounts)
           AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
-        GROUP BY keyword_text
+        GROUP BY keyword
         ORDER BY clicks DESC
         LIMIT 50
         """
@@ -972,14 +972,14 @@ def get_google_ads_analytics():
         # Get conversions by type
         conversions_query = """
         SELECT
-            conversion_action_name as type,
+            conversion_type as type,
             CAST(SUM(conversions) AS INT64) as count,
             SUM(conversions_value) as value
         FROM `mydigipal.googleAds_v2.campaignPerformanceWithConversionType`
         WHERE account IN UNNEST(@accounts)
           AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
           AND conversions > 0
-        GROUP BY conversion_action_name
+        GROUP BY conversion_type
         ORDER BY count DESC
         """
 
