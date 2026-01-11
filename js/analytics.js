@@ -36,9 +36,7 @@ class AnalyticsManager {
                     const option = document.createElement('option');
                     option.value = client.client_id;
                     option.textContent = client.client_name;
-                    if (client.alternative_name) {
-                        option.textContent += ` (${client.alternative_name})`;
-                    }
+                    option.dataset.clientData = JSON.stringify(client);
                     select.appendChild(option);
                 });
 
@@ -119,8 +117,21 @@ class AnalyticsManager {
                     // Use client_id for Search Console
                     const scClientSelect = document.getElementById('analyticsClient');
                     const scSelectedOption = scClientSelect.options[scClientSelect.selectedIndex];
-                    const scClientName = scSelectedOption.textContent.split('(')[0].trim();
+                    const scClientName = scSelectedOption.textContent;
                     const scClientId = scSelectedOption.value;
+
+                    // Check if client has multiple GSC domains
+                    const clientData = JSON.parse(scSelectedOption.dataset.clientData || '{}');
+                    if (clientData.gsc_domains_list && clientData.gsc_domains_list.length > 1) {
+                        const selectedDomains = await this.showAccountSelection(scClientId, 'search-console', clientData.gsc_domains_list);
+                        if (selectedDomains === null) {
+                            container.innerHTML = '';
+                            return;
+                        }
+                        this.selectedAccounts = selectedDomains;
+                    } else {
+                        this.selectedAccounts = null;
+                    }
 
                     await this.renderSearchConsoleReport(scClientId, scClientName, dateFrom, dateTo);
                     break;
@@ -1031,6 +1042,11 @@ class AnalyticsManager {
             date_to: dateTo
         });
 
+        // Add domains filter if specific accounts are selected
+        if (this.selectedAccounts && this.selectedAccounts.length > 0) {
+            params.append('domains', this.selectedAccounts.join(','));
+        }
+
         const response = await fetch(`${API_URL}/api/analytics/search-console?${params}`);
 
         if (!response.ok) {
@@ -1375,6 +1391,84 @@ class AnalyticsManager {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }).format(num);
+    }
+
+    async showAccountSelection(clientId, source, accounts) {
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.className = 'account-selection-modal';
+            modal.innerHTML = `
+                <div class="account-selection-content">
+                    <h3>Sélectionner les comptes à afficher</h3>
+                    <p class="account-selection-subtitle">
+                        Ce client possède plusieurs comptes ${source === 'search-console' ? 'Search Console' : 'publicitaires'}.
+                        Sélectionnez ceux que vous souhaitez inclure dans le rapport.
+                    </p>
+                    <div class="account-checkbox-list">
+                        <label class="account-checkbox-item">
+                            <input type="checkbox" class="account-checkbox-all" checked>
+                            <span class="account-checkbox-label">
+                                <strong>Tous les comptes</strong>
+                                <span class="account-checkbox-count">(${accounts.length} comptes)</span>
+                            </span>
+                        </label>
+                        <div class="account-checkbox-separator"></div>
+                        ${accounts.map(account => `
+                            <label class="account-checkbox-item">
+                                <input type="checkbox" class="account-checkbox-individual" value="${account}" checked>
+                                <span class="account-checkbox-label">${account}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                    <div class="account-selection-buttons">
+                        <button class="btn-secondary" id="cancelAccountSelection">Annuler</button>
+                        <button class="btn-primary" id="confirmAccountSelection">Valider</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Handle "All accounts" checkbox
+            const allCheckbox = modal.querySelector('.account-checkbox-all');
+            const individualCheckboxes = modal.querySelectorAll('.account-checkbox-individual');
+
+            allCheckbox.addEventListener('change', (e) => {
+                individualCheckboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                });
+            });
+
+            individualCheckboxes.forEach(cb => {
+                cb.addEventListener('change', () => {
+                    const allChecked = Array.from(individualCheckboxes).every(cb => cb.checked);
+                    allCheckbox.checked = allChecked;
+                });
+            });
+
+            // Handle cancel
+            modal.querySelector('#cancelAccountSelection').addEventListener('click', () => {
+                modal.remove();
+                resolve(null);
+            });
+
+            // Handle confirm
+            modal.querySelector('#confirmAccountSelection').addEventListener('click', () => {
+                const selected = Array.from(individualCheckboxes)
+                    .filter(cb => cb.checked)
+                    .map(cb => cb.value);
+                modal.remove();
+                resolve(selected.length === accounts.length ? [] : selected);
+            });
+
+            // Close on backdrop click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                    resolve(null);
+                }
+            });
+        });
     }
 }
 
