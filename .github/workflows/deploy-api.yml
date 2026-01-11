@@ -26,12 +26,17 @@ jobs:
         with:
           project_id: mydigipal
 
-      - name: Deploy to Cloud Run
+      - name: Build Docker image
         run: |
           cd api
+          gcloud builds submit --tag gcr.io/mydigipal/dashboard-api --project mydigipal
+
+      - name: Deploy to Cloud Run
+        run: |
           gcloud run deploy dashboard-api \
-            --source . \
+            --image gcr.io/mydigipal/dashboard-api:latest \
             --region us-central1 \
+            --platform managed \
             --allow-unauthenticated \
             --project mydigipal
 

@@ -649,7 +649,7 @@ def get_analytics_clients():
         query = """
         SELECT
             client_id,
-            client_name,
+            company_name as client_name,
             alternative_name,
             category,
             country,
@@ -660,7 +660,7 @@ def get_analytics_clients():
             linkedin_ads_accounts
         FROM `mydigipal.company.client_accounts_mapping`
         WHERE active = TRUE
-        ORDER BY client_name ASC
+        ORDER BY company_name ASC
         """
 
         results = client.query(query).result()
@@ -716,11 +716,11 @@ def get_meta_ads_analytics():
         summary_query = """
         WITH current_period AS (
             SELECT
-                SUM(impressions) as total_impressions,
-                SUM(clicks) as total_clicks,
-                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
-                SUM(spend) as total_spend,
-                SAFE_DIVIDE(SUM(spend), SUM(clicks)) as avg_cpc,
+                SUM(CAST(impressions AS INT64)) as total_impressions,
+                SUM(CAST(clicks AS INT64)) as total_clicks,
+                SAFE_DIVIDE(SUM(CAST(clicks AS INT64)), SUM(CAST(impressions AS INT64))) * 100 as avg_ctr,
+                SUM(CAST(spend AS FLOAT64)) as total_spend,
+                SAFE_DIVIDE(SUM(CAST(spend AS FLOAT64)), SUM(CAST(clicks AS INT64))) as avg_cpc,
                 COUNTIF(actions IS NOT NULL AND JSON_EXTRACT_SCALAR(actions, '$[0].value') IS NOT NULL) as total_conversions
             FROM `mydigipal.meta_ads_v2.adsMetrics`
             WHERE account_name IN UNNEST(@accounts)
@@ -728,11 +728,11 @@ def get_meta_ads_analytics():
         ),
         previous_period AS (
             SELECT
-                SUM(impressions) as total_impressions,
-                SUM(clicks) as total_clicks,
-                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
-                SUM(spend) as total_spend,
-                SAFE_DIVIDE(SUM(spend), SUM(clicks)) as avg_cpc,
+                SUM(CAST(impressions AS INT64)) as total_impressions,
+                SUM(CAST(clicks AS INT64)) as total_clicks,
+                SAFE_DIVIDE(SUM(CAST(clicks AS INT64)), SUM(CAST(impressions AS INT64))) * 100 as avg_ctr,
+                SUM(CAST(spend AS FLOAT64)) as total_spend,
+                SAFE_DIVIDE(SUM(CAST(spend AS FLOAT64)), SUM(CAST(clicks AS INT64))) as avg_cpc,
                 COUNTIF(actions IS NOT NULL AND JSON_EXTRACT_SCALAR(actions, '$[0].value') IS NOT NULL) as total_conversions
             FROM `mydigipal.meta_ads_v2.adsMetrics`
             WHERE account_name IN UNNEST(@accounts)
@@ -771,9 +771,9 @@ def get_meta_ads_analytics():
         timeline_query = """
         SELECT
             date_start as date,
-            SUM(impressions) as impressions,
-            SUM(clicks) as clicks,
-            SUM(spend) as spend
+            SUM(CAST(impressions AS INT64)) as impressions,
+            SUM(CAST(clicks AS INT64)) as clicks,
+            SUM(CAST(spend AS FLOAT64)) as spend
         FROM `mydigipal.meta_ads_v2.adsMetrics`
         WHERE account_name IN UNNEST(@accounts)
           AND date_start BETWEEN @date_from AND @date_to
@@ -796,13 +796,13 @@ def get_meta_ads_analytics():
         campaigns_query = """
         SELECT
             campaign_name,
-            SUM(impressions) as impressions,
-            SUM(clicks) as clicks,
-            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
-            SUM(spend) as spend,
-            SAFE_DIVIDE(SUM(spend), SUM(clicks)) as cpc,
+            SUM(CAST(impressions AS INT64)) as impressions,
+            SUM(CAST(clicks AS INT64)) as clicks,
+            SAFE_DIVIDE(SUM(CAST(clicks AS INT64)), SUM(CAST(impressions AS INT64))) * 100 as ctr,
+            SUM(CAST(spend AS FLOAT64)) as spend,
+            SAFE_DIVIDE(SUM(CAST(spend AS FLOAT64)), SUM(CAST(clicks AS INT64))) as cpc,
             COUNTIF(actions IS NOT NULL) as conversions
-        FROM `mydigipal.meta_ads_v2.campaignMetrics`
+        FROM `mydigipal.meta_ads_v2.adsMetrics`
         WHERE account_name IN UNNEST(@accounts)
           AND date_start BETWEEN @date_from AND @date_to
         GROUP BY campaign_name
@@ -813,31 +813,16 @@ def get_meta_ads_analytics():
         campaigns_result = client.query(campaigns_query, job_config=job_config_timeline).result()
         campaigns = [dict(row) for row in campaigns_result]
 
-        # Get conversions by type (simplified - counting actions)
+        # Get conversions by type from dedicated table
         conversions_query = """
         SELECT
-            'Lead Form' as type,
-            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'lead') as count
-        FROM `mydigipal.meta_ads_v2.adsMetrics`
+            conversion_type as type,
+            CAST(SUM(conversions) AS INT64) as count
+        FROM `mydigipal.meta_ads_v2.adsMetricsWithConversionType`
         WHERE account_name IN UNNEST(@accounts)
           AND date_start BETWEEN @date_from AND @date_to
-          AND actions IS NOT NULL
-        UNION ALL
-        SELECT
-            'Link Click' as type,
-            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'link_click') as count
-        FROM `mydigipal.meta_ads_v2.adsMetrics`
-        WHERE account_name IN UNNEST(@accounts)
-          AND date_start BETWEEN @date_from AND @date_to
-          AND actions IS NOT NULL
-        UNION ALL
-        SELECT
-            'Post Engagement' as type,
-            COUNTIF(JSON_EXTRACT_SCALAR(actions, '$[0].action_type') = 'post_engagement') as count
-        FROM `mydigipal.meta_ads_v2.adsMetrics`
-        WHERE account_name IN UNNEST(@accounts)
-          AND date_start BETWEEN @date_from AND @date_to
-          AND actions IS NOT NULL
+          AND conversions > 0
+        GROUP BY conversion_type
         ORDER BY count DESC
         """
 
