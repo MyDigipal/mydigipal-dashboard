@@ -1047,7 +1047,7 @@ class AnalyticsManager {
             params.append('domains', this.selectedAccounts.join(','));
         }
 
-        const response = await fetch(`${API_URL}/api/analytics/search-console?${params}`);
+        const response = await fetch(`${window.CONFIG.API_URL}/api/analytics/search-console?${params}`);
 
         if (!response.ok) {
             const error = await response.json();
@@ -1061,7 +1061,7 @@ class AnalyticsManager {
         try {
             const data = await this.fetchSearchConsoleData(clientId, dateFrom, dateTo);
 
-            const reportSection = document.getElementById('analyticsReportSection');
+            const reportSection = document.getElementById('analyticsReportContainer');
             reportSection.innerHTML = `
                 <div class="report-header">
                     <h2>📊 Search Console - ${clientName}</h2>
@@ -1166,7 +1166,7 @@ class AnalyticsManager {
 
         } catch (error) {
             console.error('Search Console error:', error);
-            document.getElementById('analyticsReportSection').innerHTML = `
+            document.getElementById('analyticsReportContainer').innerHTML = `
                 <div class="error-message">
                     <h3>⚠️ Error Loading Search Console Data</h3>
                     <p>${error.message}</p>
