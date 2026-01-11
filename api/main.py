@@ -677,7 +677,7 @@ def get_health_history():
 @app.route('/api/analytics/clients')
 @cache.cached(timeout=600)  # 10 minutes cache
 def get_analytics_clients():
-    """Get list of active clients for analytics"""
+    """Get list of active clients for analytics - only those with at least one account mapped"""
     try:
         query = """
         SELECT
@@ -693,6 +693,11 @@ def get_analytics_clients():
             linkedin_ads_accounts
         FROM `mydigipal.company.client_accounts_mapping`
         WHERE active = TRUE
+          AND (
+            google_ads_accounts IS NOT NULL
+            OR meta_ads_accounts IS NOT NULL
+            OR linkedin_ads_accounts IS NOT NULL
+          )
         ORDER BY company_name ASC
         """
 
