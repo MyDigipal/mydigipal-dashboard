@@ -1535,7 +1535,7 @@ IMPORTANT:
 
         # Appel Claude avec tool calling
         response = anthropic_client.messages.create(
-            model="claude-3-5-sonnet-latest",
+            model="claude-3-opus-20240229",
             max_tokens=4096,
             system=system_prompt,
             tools=tools,
@@ -1584,7 +1584,7 @@ IMPORTANT:
 
                     # Deuxième appel à Claude pour analyser les résultats
                     final_response = anthropic_client.messages.create(
-                        model="claude-3-5-sonnet-latest",
+                        model="claude-3-opus-20240229",
                         max_tokens=4096,
                         system=system_prompt,
                         messages=messages
