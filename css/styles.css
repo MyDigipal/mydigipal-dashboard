@@ -860,13 +860,14 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
 /* Analytics Filters */
 .analytics-filters {
     display: grid;
-    grid-template-columns: 1fr 1fr 1.5fr auto;
+    grid-template-columns: minmax(200px, 300px) minmax(200px, 300px) minmax(250px, 350px) auto;
     gap: 20px;
     padding: 25px;
     background: white;
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     margin-bottom: 30px;
+    max-width: fit-content;
 }
 
 .filter-group {
