@@ -176,7 +176,16 @@ body {
     font-weight: 600;
 }
 
-.container { max-width: 1400px; margin: 0 auto; padding: 1.5rem; }
+.container {
+    max-width: 100%;
+    margin: 0;
+    padding: 1.5rem 2rem;
+}
+
+/* Responsive padding */
+@media (max-width: 768px) {
+    .container { padding: 1rem; }
+}
 
 /* KPI Cards */
 .kpi-grid {
@@ -1083,11 +1092,29 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
 /* Analytics Table */
 .table-container {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .analytics-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
+}
+
+/* Limit first column width for campaign names */
+.analytics-table td:first-child,
+.analytics-table th:first-child {
+    max-width: 250px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Ensure sections with tables are scrollable */
+.analytics-section > div[style*="overflow-x: auto"],
+.analytics-section .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .analytics-table thead {
