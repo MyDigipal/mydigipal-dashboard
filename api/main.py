@@ -1259,7 +1259,7 @@ def get_search_console_data():
         # Timeline
         timeline_query = f"""
         SELECT date, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
-        FROM `mydigipal.marketing_data.gsc_date`
+        FROM `mydigipal.search_console_v2.gsc_date`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         GROUP BY date ORDER BY date ASC
         """
@@ -1268,7 +1268,7 @@ def get_search_console_data():
         # Top queries
         queries_query = f"""
         SELECT query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
-        FROM `mydigipal.marketing_data.gsc_date_query`
+        FROM `mydigipal.search_console_v2.gsc_date_query`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         GROUP BY query ORDER BY clicks DESC LIMIT 100
         """
@@ -1277,7 +1277,7 @@ def get_search_console_data():
         # Top pages
         pages_query = f"""
         SELECT page, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
-        FROM `mydigipal.marketing_data.gsc_date_page`
+        FROM `mydigipal.search_console_v2.gsc_date_page`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         GROUP BY page ORDER BY clicks DESC LIMIT 100
         """
@@ -1286,7 +1286,7 @@ def get_search_console_data():
         # Devices
         device_query = f"""
         SELECT device, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
-        FROM `mydigipal.marketing_data.gsc_date_device`
+        FROM `mydigipal.search_console_v2.gsc_date_device`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         GROUP BY device ORDER BY clicks DESC
         """
@@ -1295,7 +1295,7 @@ def get_search_console_data():
         # Countries
         country_query = f"""
         SELECT country, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
-        FROM `mydigipal.marketing_data.gsc_date_country`
+        FROM `mydigipal.search_console_v2.gsc_date_country`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         GROUP BY country ORDER BY clicks DESC LIMIT 20
         """
@@ -1304,7 +1304,7 @@ def get_search_console_data():
         # Summary
         summary_query = f"""
         SELECT SUM(clicks) as total_clicks, SUM(impressions) as total_impressions, AVG(ctr) * 100 as avg_ctr, AVG(position) as avg_position
-        FROM `mydigipal.marketing_data.gsc_date`
+        FROM `mydigipal.search_console_v2.gsc_date`
         WHERE client_group = @client_group {domains_filter_sql} {date_filter}
         """
         summary_results = client.query(summary_query, job_config=job_config).result()
