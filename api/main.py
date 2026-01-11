@@ -2,9 +2,15 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_caching import Cache
 from google.cloud import bigquery
+from google.cloud import storage
 from datetime import datetime, timedelta
 import os
 import traceback
+import re
+import json
+import uuid
+from anthropic import Anthropic
+from jinja2 import Template
 
 # Dashboard API v2.2 - Materialized views + Flask-Caching for performance
 
@@ -18,6 +24,89 @@ cache = Cache(app, config={
 })
 
 client = bigquery.Client(project='mydigipal')
+
+# AI Reports - Anthropic Claude configuration
+ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
+anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+
+# Allowed BigQuery tables for AI Reports (security)
+ALLOWED_TABLES = [
+    'mydigipal.company.timesheets_fct',
+    'mydigipal.company.invoices_fct',
+    'mydigipal.company.clients_dim',
+    'mydigipal.company.employees_dim',
+    'mydigipal.company.mv_client_profitability',
+    'mydigipal.meta_ads_v2.adsMetrics',
+    'mydigipal.googleAds_v2.campaignPerformance',
+    'mydigipal.googleAnalytics_v2.date',
+    'mydigipal.search_console_v2.gsc_date'
+]
+
+# BigQuery schema for Claude
+BIGQUERY_SCHEMA = """
+# Tables disponibles:
+
+## company.timesheets_fct
+- date (DATE): Date de la journée travaillée
+- employee_id (STRING): ID employé
+- employee_name (STRING): Nom de l'employé
+- client_id (STRING): ID client
+- hours (FLOAT64): Nombre d'heures loggées
+- cost_gbp (FLOAT64): Coût en GBP
+
+## company.invoices_fct
+- month (DATE): Mois de facturation
+- client_id (STRING): ID client
+- real_revenue_gbp (FLOAT64): Revenu réel facturé en GBP
+
+## company.clients_dim
+- client_id (STRING): ID unique du client
+- company_name (STRING): Nom de l'entreprise
+- category (STRING): Catégorie (Automotive, B2B, B2C, Internal)
+- country (STRING): Pays (FR, UK, US, etc.)
+- active (BOOLEAN): Client actif ou non
+
+## company.mv_client_profitability
+- month (DATE): Mois
+- client_id (STRING): ID client
+- client_name (STRING): Nom client
+- hours (FLOAT64): Total heures
+- cost_gbp (FLOAT64): Coût total
+- revenue_gbp (FLOAT64): Revenu total
+- profit_gbp (FLOAT64): Profit (revenue - cost)
+
+## meta_ads_v2.adsMetrics
+- account_name (STRING): Nom du compte Meta Ads
+- date_start (DATE): Date
+- campaign_name (STRING): Nom de la campagne
+- impressions (STRING): Nombre d'impressions
+- clicks (STRING): Nombre de clics
+- spend (STRING): Dépense en EUR
+
+## googleAds_v2.campaignPerformance
+- account (STRING): Nom du compte Google Ads
+- date (STRING): Date (YYYY-MM-DD)
+- campaign_name (STRING): Nom de la campagne
+- impressions (INTEGER): Nombre d'impressions
+- clicks (INTEGER): Nombre de clics
+- cost (FLOAT): Coût en EUR
+
+## googleAnalytics_v2.date
+- property_name (STRING): Nom de la propriété GA4
+- date (DATE): Date
+- sessions (INTEGER): Nombre de sessions
+- users (INTEGER): Nombre d'utilisateurs
+- screenPageViews (INTEGER): Pages vues
+
+## search_console_v2.gsc_date
+- client_group (STRING): Groupe client
+- domain_name (STRING): Nom du domaine
+- date (STRING): Date (YYYY-MM-DD)
+- clicks (INTEGER): Nombre de clics
+- impressions (INTEGER): Nombre d'impressions
+- ctr (FLOAT): CTR moyen
+- position (FLOAT): Position moyenne
+"""
 
 def get_date_params():
     date_from = request.args.get('date_from')
@@ -1325,6 +1414,310 @@ def get_search_console_data():
         print(f"Error fetching Search Console data: {str(e)}")
         traceback.print_exc()
         return jsonify({"error": f"Failed to fetch Search Console data: {str(e)}"}), 500
+
+
+# ============================================================================
+# AI REPORTS ENDPOINTS
+# ============================================================================
+
+def validate_sql_query(query):
+    """Valide que la requête SQL n'utilise que les tables autorisées"""
+    query_upper = query.upper()
+
+    # Extraire les noms de tables de la requête
+    table_pattern = r'(?:FROM|JOIN)\s+`?([a-zA-Z0-9_]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+)`?'
+    tables_in_query = re.findall(table_pattern, query_upper)
+
+    # Vérifier que toutes les tables sont autorisées
+    for table in tables_in_query:
+        table_lower = table.lower()
+        if table_lower not in [t.lower() for t in ALLOWED_TABLES]:
+            print(f"[AI Chat] Unauthorized table: {table}")
+            return False
+
+    # Interdire certains mots-clés dangereux
+    dangerous_keywords = ['DROP', 'DELETE', 'TRUNCATE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE']
+    for keyword in dangerous_keywords:
+        if keyword in query_upper:
+            print(f"[AI Chat] Dangerous keyword found: {keyword}")
+            return False
+
+    return True
+
+
+def save_conversation(conversation_id, user_message, assistant_response, sql_executed, sql_results):
+    """Sauvegarde la conversation dans BigQuery"""
+    try:
+        table_id = 'mydigipal.company.ai_conversations'
+
+        rows_to_insert = [{
+            'conversation_id': conversation_id,
+            'timestamp': datetime.utcnow().isoformat(),
+            'user_message': user_message,
+            'assistant_response': assistant_response,
+            'sql_executed': sql_executed,
+            'sql_results_count': len(sql_results) if sql_results else 0,
+            'user_email': 'unknown'  # TODO: Get from session
+        }]
+
+        errors = client.insert_rows_json(table_id, rows_to_insert)
+
+        if errors:
+            print(f"[AI Chat] Error saving conversation: {errors}")
+
+    except Exception as e:
+        print(f"[AI Chat] Failed to save conversation: {e}")
+
+
+@app.route('/api/ai-reports/chat', methods=['POST'])
+def ai_chat():
+    """Chat avec Claude pour générer des rapports"""
+    try:
+        if not anthropic_client:
+            return jsonify({'error': 'Anthropic API key not configured'}), 500
+
+        data = request.json
+        user_message = data.get('message')
+        conversation_id = data.get('conversation_id')
+        history = data.get('history', [])
+
+        if not user_message:
+            return jsonify({'error': 'Message is required'}), 400
+
+        # Générer conversation ID si nouveau
+        if not conversation_id:
+            conversation_id = f"conv_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+        # Préparer le contexte pour Claude
+        system_prompt = f"""Tu es un assistant d'analyse de données pour MyDigipal, une agence marketing digital.
+
+Tu as accès à une base de données BigQuery avec les informations suivantes:
+
+{BIGQUERY_SCHEMA}
+
+Quand l'utilisateur te pose une question:
+1. Analyse sa demande
+2. Génère une requête SQL BigQuery pour répondre
+3. Utilise le tool 'execute_sql' pour exécuter la requête
+4. Analyse les résultats et formule une réponse claire en français
+5. Si pertinent, suggère des visualisations (graphiques)
+
+IMPORTANT:
+- Toujours utiliser les noms complets des tables (ex: `mydigipal.company.clients_dim`)
+- Les dates sont au format 'YYYY-MM-DD'
+- Les montants sont en GBP pour company.*, en EUR pour ads
+- Utilise ONLY les tables listées ci-dessus
+- Réponds toujours en français
+"""
+
+        # Construire l'historique de messages
+        messages = []
+        for msg in history[-10:]:  # Garder les 10 derniers messages
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        messages.append({"role": "user", "content": user_message})
+
+        # Définir le tool pour exécution SQL
+        tools = [{
+            "name": "execute_sql",
+            "description": "Execute a BigQuery SQL query and return the results",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The SQL query to execute"
+                    }
+                },
+                "required": ["query"]
+            }
+        }]
+
+        # Appel Claude avec tool calling
+        response = anthropic_client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4096,
+            system=system_prompt,
+            tools=tools,
+            messages=messages
+        )
+
+        # Traiter la réponse et exécuter SQL si nécessaire
+        assistant_response = ""
+        sql_executed = None
+        sql_results = None
+
+        for block in response.content:
+            if block.type == "text":
+                assistant_response += block.text
+            elif block.type == "tool_use" and block.name == "execute_sql":
+                sql_query = block.input["query"]
+
+                # Valider que la requête n'utilise que les tables autorisées
+                if not validate_sql_query(sql_query):
+                    return jsonify({
+                        'error': 'Requête SQL non autorisée. Seules certaines tables sont accessibles.'
+                    }), 403
+
+                # Exécuter la requête BigQuery
+                try:
+                    sql_executed = sql_query
+                    query_job = client.query(sql_query)
+                    results = query_job.result()
+
+                    # Convertir résultats en format JSON
+                    sql_results = [dict(row) for row in results]
+
+                    # Envoyer les résultats à Claude pour analyse
+                    messages.append({
+                        "role": "assistant",
+                        "content": response.content
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": [{
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(sql_results, default=str)
+                        }]
+                    })
+
+                    # Deuxième appel à Claude pour analyser les résultats
+                    final_response = anthropic_client.messages.create(
+                        model="claude-3-5-sonnet-20241022",
+                        max_tokens=4096,
+                        system=system_prompt,
+                        messages=messages
+                    )
+
+                    for final_block in final_response.content:
+                        if final_block.type == "text":
+                            assistant_response = final_block.text
+
+                except Exception as e:
+                    return jsonify({
+                        'error': f'Erreur lors de l\'exécution SQL: {str(e)}'
+                    }), 500
+
+        # Sauvegarder la conversation dans BigQuery
+        save_conversation(conversation_id, user_message, assistant_response, sql_executed, sql_results)
+
+        return jsonify({
+            'response': assistant_response,
+            'conversation_id': conversation_id,
+            'sql_executed': sql_executed
+        })
+
+    except Exception as e:
+        print(f"[AI Chat] Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-reports/history')
+@cache.cached(timeout=60)
+def get_ai_history():
+    """Récupère l'historique des conversations"""
+    try:
+        query = """
+        SELECT
+            conversation_id,
+            MIN(timestamp) as started_at,
+            MAX(timestamp) as last_message_at,
+            COUNT(*) as message_count,
+            ARRAY_AGG(STRUCT(user_message, assistant_response) ORDER BY timestamp DESC LIMIT 1)[OFFSET(0)] as last_exchange
+        FROM `mydigipal.company.ai_conversations`
+        GROUP BY conversation_id
+        ORDER BY last_message_at DESC
+        LIMIT 50
+        """
+
+        results = client.query(query).result()
+        conversations = [dict(row) for row in results]
+
+        return jsonify(conversations)
+
+    except Exception as e:
+        print(f"[AI History] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-reports/export-html', methods=['POST'])
+def export_html():
+    """Génère HTML standalone du rapport"""
+    try:
+        data = request.json
+        conversation_id = data.get('conversation_id')
+
+        if not conversation_id:
+            return jsonify({'error': 'conversation_id is required'}), 400
+
+        # TODO: Récupérer données conversation et générer HTML
+        # Pour l'instant, retourner un placeholder
+
+        return jsonify({
+            'html': '<html><body><h1>Rapport AI</h1></body></html>',
+            'filename': f'rapport_{conversation_id}.html'
+        })
+
+    except Exception as e:
+        print(f"[AI Export] Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-reports/share', methods=['POST'])
+def share_report():
+    """Upload rapport vers Cloud Storage et génère lien public"""
+    try:
+        data = request.json
+        html_content = data.get('html')
+
+        if not html_content:
+            return jsonify({'error': 'html is required'}), 400
+
+        # Upload vers GCS bucket
+        storage_client = storage.Client()
+        bucket = storage_client.bucket('mydigipal-reports')
+
+        # Générer short ID unique
+        short_id = uuid.uuid4().hex[:8]
+
+        blob = bucket.blob(f'reports/{short_id}.html')
+        blob.upload_from_string(html_content, content_type='text/html')
+
+        # Rendre public avec signed URL (30 jours)
+        url = blob.generate_signed_url(expiration=timedelta(days=30))
+
+        # Sauvegarder metadata dans BigQuery
+        try:
+            table_id = 'mydigipal.company.ai_shared_reports'
+            rows_to_insert = [{
+                'short_id': short_id,
+                'conversation_id': data.get('conversation_id', ''),
+                'public_url': url,
+                'created_at': datetime.utcnow().isoformat(),
+                'expires_at': (datetime.utcnow() + timedelta(days=30)).isoformat(),
+                'view_count': 0,
+                'last_viewed_at': None,
+                'created_by': 'unknown',
+                'client_name': '',
+                'report_type': ''
+            }]
+            client.insert_rows_json(table_id, rows_to_insert)
+        except Exception as e:
+            print(f"[AI Share] Failed to save metadata: {e}")
+
+        return jsonify({
+            'share_url': f'https://storage.googleapis.com/mydigipal-reports/reports/{short_id}.html',
+            'short_id': short_id,
+            'expires_at': (datetime.utcnow() + timedelta(days=30)).strftime('%Y-%m-%d')
+        })
+
+    except Exception as e:
+        print(f"[AI Share] Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
