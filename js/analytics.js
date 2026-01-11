@@ -103,7 +103,8 @@ class AnalyticsManager {
                     this.renderMetaAdsReport(data);
                     break;
                 case 'google-ads':
-                    container.innerHTML = '<div class="coming-soon">📊 Google Ads - Bientôt disponible</div>';
+                    data = await this.fetchGoogleAdsData(clientId, dateFrom, dateTo);
+                    this.renderGoogleAdsReport(data);
                     break;
                 case 'ga4':
                     container.innerHTML = '<div class="coming-soon">📊 Google Analytics 4 - Bientôt disponible</div>';
@@ -482,6 +483,264 @@ class AnalyticsManager {
 
                 rows.forEach(row => tbody.appendChild(row));
             });
+        });
+    }
+
+    // Google Ads Data Fetching
+    async fetchGoogleAdsData(clientId, dateFrom, dateTo) {
+        const url = `${window.CONFIG.API_URL}/api/analytics/google-ads?client_id=${clientId}&date_from=${dateFrom}&date_to=${dateTo}`;
+        console.log(`[Analytics] Fetching Google Ads data: ${url}`);
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch Google Ads data');
+        }
+        return response.json();
+    }
+
+    renderGoogleAdsReport(data) {
+        console.log('[Analytics] Rendering Google Ads report', data);
+
+        const container = document.getElementById('analyticsReportContainer');
+
+        // Destroy existing charts
+        Object.values(this.charts).forEach(chart => {
+            if (chart && chart.destroy) {
+                chart.destroy();
+            }
+        });
+        this.charts = {};
+
+        const s = data.summary;
+
+        container.innerHTML = `
+            <div class="analytics-report">
+                <div class="analytics-report-header">
+                    <h2>📊 Google Ads - ${data.accounts.join(', ')}</h2>
+                </div>
+
+                <!-- KPIs -->
+                <div class="analytics-kpi-grid">
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">Impressions</div>
+                        <div class="kpi-value">${this.formatNumber(s.total_impressions || 0)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">Clics</div>
+                        <div class="kpi-value">${this.formatNumber(s.total_clicks || 0)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">Coût</div>
+                        <div class="kpi-value">${this.formatCurrency(s.total_cost || 0)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">CTR</div>
+                        <div class="kpi-value">${(s.avg_ctr || 0).toFixed(2)}%</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">CPC</div>
+                        <div class="kpi-value">${this.formatCurrency(s.avg_cpc || 0)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">Conversions</div>
+                        <div class="kpi-value">${this.formatNumber(s.total_conversions || 0)}</div>
+                    </div>
+                </div>
+
+                <!-- Timeline Chart -->
+                <div class="analytics-section">
+                    <h3>Tendance</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="googleAdsTimelineChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Campaigns & Keywords -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+                    <div class="analytics-section">
+                        <h3>Campagnes</h3>
+                        <div class="analytics-table-container">
+                            <table id="googleAdsCampaignsTable" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Campagne</th>
+                                        <th>Impressions</th>
+                                        <th>Clics</th>
+                                        <th>CTR</th>
+                                        <th>Coût</th>
+                                        <th>CPC</th>
+                                        <th>Conv.</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="analytics-section">
+                        <h3>Mots-clés</h3>
+                        <div class="analytics-table-container">
+                            <table id="googleAdsKeywordsTable" class="analytics-table">
+                                <thead>
+                                    <tr>
+                                        <th>Mot-clé</th>
+                                        <th>Impressions</th>
+                                        <th>Clics</th>
+                                        <th>CTR</th>
+                                        <th>Coût</th>
+                                        <th>CPC</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conversions -->
+                <div class="analytics-section">
+                    <h3>Conversions par type</h3>
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="googleAdsConversionsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Render charts & tables
+        setTimeout(() => {
+            this.renderGoogleAdsTimelineChart(data.timeline);
+            this.populateGoogleAdsCampaignsTable(data.campaigns);
+            this.populateGoogleAdsKeywordsTable(data.keywords);
+            this.renderGoogleAdsConversionsChart(data.conversions_by_type);
+        }, 100);
+    }
+
+    renderGoogleAdsTimelineChart(timeline) {
+        const ctx = document.getElementById('googleAdsTimelineChart');
+        if (!ctx) return;
+
+        this.charts.googleAdsTimeline = new Chart(ctx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: timeline.map(d => new Date(d.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })),
+                datasets: [
+                    {
+                        label: 'Clics',
+                        data: timeline.map(d => d.clicks),
+                        borderColor: '#0B6CD9',
+                        backgroundColor: 'rgba(11, 108, 217, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    },
+                    {
+                        label: 'Coût (€)',
+                        data: timeline.map(d => d.cost),
+                        borderColor: '#DC2626',
+                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                        tension: 0.4,
+                        fill: true,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Clics' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: 'Coût (€)' },
+                        grid: { drawOnChartArea: false }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' }
+                }
+            }
+        });
+    }
+
+    populateGoogleAdsCampaignsTable(campaigns) {
+        const tbody = document.querySelector('#googleAdsCampaignsTable tbody');
+        if (!tbody) return;
+
+        campaigns.slice(0, 20).forEach(campaign => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${campaign.campaign_name || 'N/A'}</td>
+                <td class="number">${this.formatNumber(campaign.impressions || 0)}</td>
+                <td class="number">${this.formatNumber(campaign.clicks || 0)}</td>
+                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${this.formatCurrency(campaign.cost || 0)}</td>
+                <td class="number">${this.formatCurrency(campaign.cpc || 0)}</td>
+                <td class="number">${this.formatNumber(campaign.conversions || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#googleAdsCampaignsTable');
+    }
+
+    populateGoogleAdsKeywordsTable(keywords) {
+        const tbody = document.querySelector('#googleAdsKeywordsTable tbody');
+        if (!tbody) return;
+
+        keywords.slice(0, 20).forEach(keyword => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${keyword.keyword_text || 'N/A'}</td>
+                <td class="number">${this.formatNumber(keyword.impressions || 0)}</td>
+                <td class="number">${this.formatNumber(keyword.clicks || 0)}</td>
+                <td class="number">${(keyword.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${this.formatCurrency(keyword.cost || 0)}</td>
+                <td class="number">${this.formatCurrency(keyword.cpc || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#googleAdsKeywordsTable');
+    }
+
+    renderGoogleAdsConversionsChart(conversions) {
+        const ctx = document.getElementById('googleAdsConversionsChart');
+        if (!ctx) return;
+
+        this.charts.googleAdsConversions = new Chart(ctx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: conversions.map(c => c.type),
+                datasets: [{
+                    data: conversions.map(c => c.count),
+                    backgroundColor: ['#0B6CD9', '#11845B', '#D5691B', '#8b5cf6', '#DC2626']
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            padding: 15,
+                            font: { family: 'Inter', size: 12 }
+                        }
+                    }
+                }
+            }
         });
     }
 
