@@ -93,6 +93,7 @@
                 <button class="tab" data-tab="clientdetail">🏢 Client</button>
                 <button class="tab" data-tab="planning">📋 Planning</button>
                 <button class="tab" data-tab="health">🏥 Data Health</button>
+                <button class="tab" data-tab="ai-reports">🤖 AI Reports</button>
             </div>
 
             <!-- Clients Panel (Admin only) -->
@@ -434,6 +435,44 @@
                     </div>
                 </div>
             </div>
+
+            <!-- AI Reports Panel -->
+            <div class="panel" id="panel-ai-reports">
+                <div class="ai-reports-container">
+                    <div class="ai-reports-header">
+                        <h2>🤖 AI Reports - Assistant d'Analyse</h2>
+                        <p class="ai-subtitle">Posez vos questions en français, l'IA génère les rapports automatiquement</p>
+                    </div>
+
+                    <div class="ai-chat-container">
+                        <div class="ai-chat-messages" id="aiChatMessages">
+                            <!-- Messages du chat apparaîtront ici -->
+                            <div class="ai-welcome-message">
+                                <h3>Bienvenue! 👋</h3>
+                                <p>Je peux vous aider à analyser vos données. Voici quelques exemples de questions:</p>
+                                <ul>
+                                    <li>"Quel client a généré le plus de revenus ce mois-ci?"</li>
+                                    <li>"Montre-moi l'évolution du profit de Vulcain sur les 6 derniers mois"</li>
+                                    <li>"Combien d'heures Jordan a-t-il loggé en novembre 2025?"</li>
+                                    <li>"Quelles sont les campagnes Meta Ads les plus performantes pour GGP?"</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <div class="ai-chat-input-container">
+                            <textarea
+                                id="aiMessageInput"
+                                class="ai-message-input"
+                                placeholder="Posez votre question ici..."
+                                rows="2"
+                            ></textarea>
+                            <button id="aiSendMessage" class="ai-send-button">
+                                <span>Envoyer</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -450,6 +489,7 @@
     <script src="js/export.js"></script>
     <script src="js/health.js"></script>
     <script src="js/analytics.js"></script>
+    <script src="js/ai-reports.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>
