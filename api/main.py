@@ -29,83 +29,149 @@ client = bigquery.Client(project='mydigipal')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
 
-# Allowed BigQuery tables for AI Reports (security)
+# Allowed BigQuery tables for AI Reports (security) - ANALYTICS ONLY
 ALLOWED_TABLES = [
-    'mydigipal.company.timesheets_fct',
-    'mydigipal.company.invoices_fct',
     'mydigipal.company.clients_dim',
-    'mydigipal.company.employees_dim',
-    'mydigipal.company.mv_client_profitability',
+    'mydigipal.company.client_accounts_mapping',
     'mydigipal.meta_ads_v2.adsMetrics',
+    'mydigipal.meta_ads_v2.adsMetricsWithConversionType',
     'mydigipal.googleAds_v2.campaignPerformance',
+    'mydigipal.googleAds_v2.campaignPerformanceWithConversionType',
+    'mydigipal.googleAds_v2.keywordPerformance',
     'mydigipal.googleAnalytics_v2.date',
-    'mydigipal.search_console_v2.gsc_date'
+    'mydigipal.googleAnalytics_v2.sessionChannel',
+    'mydigipal.googleAnalytics_v2.landingPage',
+    'mydigipal.googleAnalytics_v2.demographics',
+    'mydigipal.search_console_v2.gsc_date',
+    'mydigipal.search_console_v2.gsc_date_query',
+    'mydigipal.search_console_v2.gsc_date_page',
+    'mydigipal.search_console_v2.gsc_date_device',
+    'mydigipal.search_console_v2.gsc_date_country'
 ]
 
 # BigQuery schema for Claude
 BIGQUERY_SCHEMA = """
-# Tables disponibles:
+# Tables disponibles - MARKETING ANALYTICS UNIQUEMENT:
 
-## company.timesheets_fct
-- date (DATE): Date de la journée travaillée
-- employee_id (STRING): ID employé
-- employee_name (STRING): Nom de l'employé
-- client_id (STRING): ID client
-- hours (FLOAT64): Nombre d'heures loggées
-- cost_gbp (FLOAT64): Coût en GBP
-
-## company.invoices_fct
-- month (DATE): Mois de facturation
-- client_id (STRING): ID client
-- real_revenue_gbp (FLOAT64): Revenu réel facturé en GBP
-
-## company.clients_dim
-- client_id (STRING): ID unique du client
+## company.clients_dim (référence clients)
+- client_id (STRING): ID unique du client (ex: 'vulcain', 'ggp', 'groupe_theobald')
 - company_name (STRING): Nom de l'entreprise
-- category (STRING): Catégorie (Automotive, B2B, B2C, Internal)
+- category (STRING): Catégorie (Automotive, B2B, B2C)
 - country (STRING): Pays (FR, UK, US, etc.)
-- active (BOOLEAN): Client actif ou non
 
-## company.mv_client_profitability
-- month (DATE): Mois
+## company.client_accounts_mapping (mapping comptes par client)
 - client_id (STRING): ID client
-- client_name (STRING): Nom client
-- hours (FLOAT64): Total heures
-- cost_gbp (FLOAT64): Coût total
-- revenue_gbp (FLOAT64): Revenu total
-- profit_gbp (FLOAT64): Profit (revenue - cost)
+- company_name (STRING): Nom entreprise
+- google_ads_accounts (STRING): Comptes Google Ads (séparés par |)
+- meta_ads_accounts (STRING): Comptes Meta Ads (séparés par |)
+- ga4_properties (STRING): Propriétés GA4 (séparées par |)
+- gsc_domains (STRING): Domaines Search Console (séparés par |)
 
-## meta_ads_v2.adsMetrics
+## meta_ads_v2.adsMetrics (Meta Ads - campagnes)
 - account_name (STRING): Nom du compte Meta Ads
 - date_start (DATE): Date
 - campaign_name (STRING): Nom de la campagne
-- impressions (STRING): Nombre d'impressions
-- clicks (STRING): Nombre de clics
-- spend (STRING): Dépense en EUR
+- impressions (STRING): Impressions (convertir en INT64 avec CAST)
+- clicks (STRING): Clics (convertir en INT64 avec CAST)
+- spend (STRING): Dépense en EUR (convertir en FLOAT64 avec CAST)
+- actions (JSON): Actions/conversions (utiliser JSON_EXTRACT_SCALAR)
 
-## googleAds_v2.campaignPerformance
+## meta_ads_v2.adsMetricsWithConversionType (Meta Ads - conversions détaillées)
+- account_name (STRING): Nom du compte
+- date_start (DATE): Date
+- conversion_type (STRING): Type de conversion
+- conversions (FLOAT64): Nombre de conversions
+
+## googleAds_v2.campaignPerformance (Google Ads - campagnes)
 - account (STRING): Nom du compte Google Ads
-- date (STRING): Date (YYYY-MM-DD)
+- date (STRING): Date (format YYYY-MM-DD, utiliser PARSE_DATE)
 - campaign_name (STRING): Nom de la campagne
-- impressions (INTEGER): Nombre d'impressions
-- clicks (INTEGER): Nombre de clics
+- impressions (INTEGER): Impressions
+- clicks (INTEGER): Clics
 - cost (FLOAT): Coût en EUR
+- conversions (FLOAT): Conversions
+- conversions_value (FLOAT): Valeur des conversions
 
-## googleAnalytics_v2.date
-- property_name (STRING): Nom de la propriété GA4
-- date (DATE): Date
-- sessions (INTEGER): Nombre de sessions
-- users (INTEGER): Nombre d'utilisateurs
-- screenPageViews (INTEGER): Pages vues
-
-## search_console_v2.gsc_date
-- client_group (STRING): Groupe client
-- domain_name (STRING): Nom du domaine
+## googleAds_v2.campaignPerformanceWithConversionType (Google Ads - conversions détaillées)
+- account (STRING): Nom du compte
 - date (STRING): Date (YYYY-MM-DD)
-- clicks (INTEGER): Nombre de clics
-- impressions (INTEGER): Nombre d'impressions
-- ctr (FLOAT): CTR moyen
+- conversion_type (STRING): Type de conversion
+- conversions (FLOAT): Nombre de conversions
+- conversions_value (FLOAT): Valeur
+
+## googleAds_v2.keywordPerformance (Google Ads - mots-clés)
+- account (STRING): Nom du compte
+- date (STRING): Date (YYYY-MM-DD)
+- keyword (STRING): Mot-clé
+- impressions (INTEGER): Impressions
+- clicks (INTEGER): Clics
+- cost (FLOAT): Coût en EUR
+- conversions (FLOAT): Conversions
+
+## googleAnalytics_v2.date (GA4 - données temporelles)
+- property_name (STRING): Nom de la propriété GA4
+- date (DATE ou STRING format YYYYMMDD): Date
+- sessions (STRING ou INTEGER): Nombre de sessions (convertir si STRING)
+- totalUsers (STRING ou INTEGER): Utilisateurs totaux
+- screenPageViews (STRING ou INTEGER): Pages vues
+- conversions (STRING ou INTEGER): Conversions
+- bounceRate (FLOAT): Taux de rebond
+- engagementRate (FLOAT): Taux d'engagement
+
+## googleAnalytics_v2.sessionChannel (GA4 - canaux)
+- property_name (STRING): Propriété GA4
+- date (DATE ou STRING): Date
+- firstUserDefaultChannelGroup (STRING): Canal d'acquisition
+- sessions, totalUsers, screenPageViews, conversions (STRING/INTEGER)
+
+## googleAnalytics_v2.landingPage (GA4 - pages de destination)
+- property_name (STRING): Propriété GA4
+- date (DATE ou STRING): Date
+- landingPage (STRING): URL de la page
+- sessions, totalUsers, bounceRate, engagementRate
+
+## googleAnalytics_v2.demographics (GA4 - démographie)
+- property_name (STRING): Propriété GA4
+- date (DATE ou STRING): Date
+- deviceCategory (STRING): Type d'appareil (desktop, mobile, tablet)
+- country (STRING): Pays
+- sessions, totalUsers
+
+## search_console_v2.gsc_date (Search Console - données temporelles)
+- client_group (STRING): Nom du client (company_name)
+- domain_name (STRING): Domaine
+- date (STRING): Date (YYYY-MM-DD)
+- clicks (INTEGER): Clics
+- impressions (INTEGER): Impressions
+- ctr (FLOAT): CTR (déjà en décimal, multiplier par 100 pour %)
 - position (FLOAT): Position moyenne
+
+## search_console_v2.gsc_date_query (Search Console - requêtes)
+- client_group, domain_name, date
+- query (STRING): Requête de recherche
+- clicks, impressions, ctr, position
+
+## search_console_v2.gsc_date_page (Search Console - pages)
+- client_group, domain_name, date
+- page (STRING): URL de la page
+- clicks, impressions, ctr, position
+
+## search_console_v2.gsc_date_device (Search Console - appareils)
+- client_group, domain_name, date
+- device (STRING): Type d'appareil
+- clicks, impressions, ctr, position
+
+## search_console_v2.gsc_date_country (Search Console - pays)
+- client_group, domain_name, date
+- country (STRING): Code pays
+- clicks, impressions, ctr, position
+
+NOTES IMPORTANTES:
+- Meta Ads: impressions, clicks, spend sont STRING → utiliser CAST(... AS INT64) ou CAST(... AS FLOAT64)
+- Google Ads: date est STRING → utiliser PARSE_DATE('%Y-%m-%d', date)
+- GA4: date peut être STRING (YYYYMMDD) ou DATE, vérifier avec la structure
+- GA4: metrics peuvent être STRING ou INTEGER selon la table
+- Search Console: client_group correspond à company_name du client
 """
 
 def get_date_params():
@@ -1489,25 +1555,70 @@ def ai_chat():
             conversation_id = f"conv_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
 
         # Préparer le contexte pour Claude
-        system_prompt = f"""Tu es un assistant d'analyse de données pour MyDigipal, une agence marketing digital.
+        system_prompt = f"""Tu es un assistant spécialisé dans la création de rapports marketing pour MyDigipal, une agence marketing digital.
 
-Tu as accès à une base de données BigQuery avec les informations suivantes:
+Ta mission: Générer des rapports clients complets et professionnels basés sur les données analytics (Meta Ads, Google Ads, GA4, Search Console).
 
+DONNÉES DISPONIBLES:
 {BIGQUERY_SCHEMA}
 
-Quand l'utilisateur te pose une question:
-1. Analyse sa demande
-2. Génère une requête SQL BigQuery pour répondre
-3. Utilise le tool 'execute_sql' pour exécuter la requête
-4. Analyse les résultats et formule une réponse claire en français
-5. Si pertinent, suggère des visualisations (graphiques)
+PROCESSUS DE CRÉATION DE RAPPORT:
+1. **Identifier le client** mentionné dans la question
+2. **Récupérer ses comptes** depuis client_accounts_mapping pour savoir quels comptes/domaines analyser
+3. **Générer les requêtes SQL** appropriées pour chaque plateforme (Meta, Google Ads, GA4, Search Console)
+4. **Utiliser execute_sql** pour chaque requête
+5. **Analyser les résultats** et créer un rapport structuré
 
-IMPORTANT:
-- Toujours utiliser les noms complets des tables (ex: `mydigipal.company.clients_dim`)
-- Les dates sont au format 'YYYY-MM-DD'
-- Les montants sont en GBP pour company.*, en EUR pour ads
-- Utilise ONLY les tables listées ci-dessus
-- Réponds toujours en français
+STRUCTURE DE RÉPONSE IDÉALE:
+```
+# 📊 Rapport [Client] - [Période]
+
+## Vue d'ensemble
+- Total impressions: X
+- Total clics: X
+- Dépense totale: X €
+- CTR moyen: X%
+- Conversions: X
+
+## Meta Ads (Facebook & Instagram)
+[Tableau des campagnes avec performances]
+Top 3 campagnes par clics...
+
+## Google Ads
+[Tableau des campagnes]
+Mots-clés les plus performants...
+
+## Google Analytics 4
+- Sessions: X
+- Utilisateurs: X
+- Pages vues: X
+- Taux de rebond: X%
+
+## Search Console (SEO)
+- Clics organiques: X
+- Impressions: X
+- Position moyenne: X
+- Top requêtes...
+
+## 🎯 Points clés & Recommandations
+- [Insight 1]
+- [Insight 2]
+```
+
+RÈGLES SQL:
+- Toujours utiliser noms complets: `mydigipal.meta_ads_v2.adsMetrics`
+- Meta Ads: CAST(impressions AS INT64), CAST(spend AS FLOAT64)
+- Google Ads: PARSE_DATE('%Y-%m-%d', date)
+- Search Console: filtrer par client_group = 'Company Name' du client
+- Utiliser SAFE_DIVIDE pour éviter division par zéro
+- Formater les nombres: ROUND(..., 2) pour 2 décimales
+
+EXEMPLES DE QUESTIONS ATTENDUES:
+- "Crée un rapport pour Vulcain en décembre 2025"
+- "Analyse les performances Meta Ads de GGP sur les 30 derniers jours"
+- "Rapport complet Groupe Théobald du 1er au 15 janvier 2026"
+
+Réponds toujours en FRANÇAIS avec des données formatées et exploitables.
 """
 
         # Construire l'historique de messages
