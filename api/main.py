@@ -1397,22 +1397,49 @@ def get_linkedin_ads_analytics():
             print(f"[LinkedIn Ads] Debug: {debug_data}")
 
 
-        # LinkedIn has built-in lead tracking, so we just categorize the metrics
-        # Leads: oneClickLeads + oneClickLeadFormOpens
-        # Conversions: externalWebsiteConversions
+        # Get detailed conversion metrics
+        conversions_detail_query = """
+        SELECT
+            SUM(COALESCE(oneClickLeads, 0)) as one_click_leads,
+            SUM(COALESCE(oneClickLeadFormOpens, 0)) as lead_form_opens,
+            SUM(COALESCE(externalWebsitePostClickConversions, 0)) as post_click_conversions,
+            SUM(COALESCE(externalWebsitePostViewConversions, 0)) as post_view_conversions
+        FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+        """
+
+        conversions_detail_result = client.query(conversions_detail_query, job_config=job_config_summary).result()
+        conversions_detail = dict(next(conversions_detail_result))
+
+        # Build detailed conversion types
         conversion_types = []
 
-        if summary.get('total_leads', 0) > 0:
+        if conversions_detail.get('one_click_leads', 0) > 0:
             conversion_types.append({
-                'type': 'LinkedIn Lead Forms',
-                'count': int(summary['total_leads']),
+                'type': 'OneClick Leads',
+                'count': int(conversions_detail['one_click_leads']),
                 'is_lead': True
             })
 
-        if summary.get('total_conversions', 0) > 0:
+        if conversions_detail.get('lead_form_opens', 0) > 0:
             conversion_types.append({
-                'type': 'External Website Conversions',
-                'count': int(summary['total_conversions']),
+                'type': 'Lead Form Opens',
+                'count': int(conversions_detail['lead_form_opens']),
+                'is_lead': True
+            })
+
+        if conversions_detail.get('post_click_conversions', 0) > 0:
+            conversion_types.append({
+                'type': 'External Website Conversions (Post-Click)',
+                'count': int(conversions_detail['post_click_conversions']),
+                'is_lead': False
+            })
+
+        if conversions_detail.get('post_view_conversions', 0) > 0:
+            conversion_types.append({
+                'type': 'External Website Conversions (Post-View)',
+                'count': int(conversions_detail['post_view_conversions']),
                 'is_lead': False
             })
 
