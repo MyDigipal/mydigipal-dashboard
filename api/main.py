@@ -1214,7 +1214,14 @@ def get_google_ads_analytics():
         conversions_result = client.query(conversions_query, job_config=job_config).result()
         conversions_by_type = [dict(row) for row in conversions_result if row['count'] > 0]
 
-        if not conversions_by_type:
+        # Fallback: if no conversion type details but total_conversions > 0, use generic label
+        if not conversions_by_type and summary.get('total_conversions', 0) > 0:
+            conversions_by_type = [{
+                'type': 'Conversions (type non spécifié)',
+                'count': int(summary['total_conversions']),
+                'value': summary.get('total_conversion_value')
+            }]
+        elif not conversions_by_type:
             conversions_by_type = [{'type': 'No conversions tracked', 'count': 0, 'value': 0}]
 
         return jsonify({
@@ -1963,14 +1970,36 @@ def get_search_console_data():
         }
 
         client_group = SEARCH_CONSOLE_CLIENT_GROUP_MAP.get(client_id, mapping_row.company_name)
-        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", client_group)] + date_params
+
+        # Check if client_group is available in BigQuery data
+        # Some domains have empty client_group, so we filter by domain only
+        check_query = f"""
+        SELECT COUNT(DISTINCT client_group) as groups_count
+        FROM `mydigipal.search_console_v2.gsc_date`
+        WHERE {domains_filter_sql.replace('AND ', '')}
+          AND client_group IS NOT NULL
+          AND client_group != ''
+        LIMIT 1
+        """
+        check_result = client.query(check_query).result()
+        has_client_group = next(check_result).groups_count > 0
+
+        # Build query filters
+        if has_client_group:
+            client_filter = "AND client_group = @client_group"
+            query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", client_group)] + date_params
+        else:
+            # Filter by domain only if client_group is empty
+            client_filter = ""
+            query_params = date_params
+
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
 
         # Timeline
         timeline_query = f"""
         SELECT date, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
         FROM `mydigipal.search_console_v2.gsc_date`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         GROUP BY date ORDER BY date ASC
         """
         timeline = [dict(row) for row in client.query(timeline_query, job_config=job_config).result()]
@@ -1979,7 +2008,7 @@ def get_search_console_data():
         queries_query = f"""
         SELECT query, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
         FROM `mydigipal.search_console_v2.gsc_date_query`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         GROUP BY query ORDER BY clicks DESC LIMIT 100
         """
         top_queries = [dict(row) for row in client.query(queries_query, job_config=job_config).result()]
@@ -1988,7 +2017,7 @@ def get_search_console_data():
         pages_query = f"""
         SELECT page, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
         FROM `mydigipal.search_console_v2.gsc_date_page`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         GROUP BY page ORDER BY clicks DESC LIMIT 100
         """
         top_pages = [dict(row) for row in client.query(pages_query, job_config=job_config).result()]
@@ -1997,7 +2026,7 @@ def get_search_console_data():
         device_query = f"""
         SELECT device, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
         FROM `mydigipal.search_console_v2.gsc_date_device`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         GROUP BY device ORDER BY clicks DESC
         """
         devices = [dict(row) for row in client.query(device_query, job_config=job_config).result()]
@@ -2006,7 +2035,7 @@ def get_search_console_data():
         country_query = f"""
         SELECT country, SUM(clicks) as clicks, SUM(impressions) as impressions, AVG(ctr) * 100 as ctr, AVG(position) as position
         FROM `mydigipal.search_console_v2.gsc_date_country`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         GROUP BY country ORDER BY clicks DESC LIMIT 20
         """
         countries = [dict(row) for row in client.query(country_query, job_config=job_config).result()]
@@ -2015,7 +2044,7 @@ def get_search_console_data():
         summary_query = f"""
         SELECT SUM(clicks) as total_clicks, SUM(impressions) as total_impressions, AVG(ctr) * 100 as avg_ctr, AVG(position) as avg_position
         FROM `mydigipal.search_console_v2.gsc_date`
-        WHERE client_group = @client_group {domains_filter_sql} {date_filter}
+        WHERE 1=1 {client_filter} {domains_filter_sql} {date_filter}
         """
         summary_results = client.query(summary_query, job_config=job_config).result()
         summary = [dict(row) for row in summary_results][0] if summary_results.total_rows > 0 else {}
