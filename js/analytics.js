@@ -145,6 +145,12 @@ class AnalyticsManager {
                     data = await this.fetchGoogleAdsData(clientId, dateFrom, dateTo);
                     this.renderGoogleAdsReport(data);
                     break;
+                case 'linkedin-ads':
+                    // Hide account selection panel for single-account sources
+                    this.hideAccountSelectionPanel();
+                    data = await this.fetchLinkedInAdsData(clientId, dateFrom, dateTo);
+                    this.renderLinkedInAdsReport(data);
+                    break;
                 case 'ga4':
                     // Hide account selection panel for single-account sources
                     this.hideAccountSelectionPanel();
@@ -1072,6 +1078,384 @@ class AnalyticsManager {
             `;
             tbody.appendChild(row);
         });
+    }
+
+    async fetchLinkedInAdsData(clientId, dateFrom, dateTo) {
+        const url = `${CONFIG.API_URL}/api/analytics/linkedin-ads?client_id=${clientId}&date_from=${dateFrom}&date_to=${dateTo}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch LinkedIn Ads data');
+        return await response.json();
+    }
+
+    renderLinkedInAdsReport(data) {
+        const container = document.getElementById('analyticsReportContainer');
+        if (!container) return;
+
+        const { summary, timeline, campaigns, conversions_by_type, accounts } = data;
+
+        // Calculate leads and conversions from conversions_by_type
+        const { totalLeads, totalConversions } = this.calculateLeadsAndConversions(conversions_by_type);
+
+        container.innerHTML = `
+            <div class="analytics-report">
+                <h2 class="report-title">📘 LinkedIn Ads - Rapport de Performance</h2>
+                <p class="report-accounts">Comptes: ${accounts.join(', ')}</p>
+
+                <!-- KPIs Summary -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon">💰</div>
+                        <div class="kpi-value">${this.formatCurrency(summary.total_spend || 0)}</div>
+                        <div class="kpi-label">Total Dépense</div>
+                        <div class="kpi-change ${(summary.spend_change || 0) >= 0 ? 'positive' : 'negative'}">
+                            ${(summary.spend_change || 0) >= 0 ? '↗' : '↘'} ${Math.abs(summary.spend_change || 0)}%
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">🎯</div>
+                        <div class="kpi-value">${this.formatNumber(totalLeads)}</div>
+                        <div class="kpi-label">Total Leads</div>
+                        <div class="kpi-change ${(summary.leads_change || 0) >= 0 ? 'positive' : 'negative'}">
+                            ${(summary.leads_change || 0) >= 0 ? '↗' : '↘'} ${Math.abs(summary.leads_change || 0)}%
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">✅</div>
+                        <div class="kpi-value">${this.formatNumber(totalConversions)}</div>
+                        <div class="kpi-label">Total Conversions</div>
+                        <div class="kpi-change ${(summary.conversions_change || 0) >= 0 ? 'positive' : 'negative'}">
+                            ${(summary.conversions_change || 0) >= 0 ? '↗' : '↘'} ${Math.abs(summary.conversions_change || 0)}%
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">📊</div>
+                        <div class="kpi-value">${(summary.avg_ctr || 0).toFixed(2)}%</div>
+                        <div class="kpi-label">CTR moyen</div>
+                        <div class="kpi-change ${(summary.ctr_change || 0) >= 0 ? 'positive' : 'negative'}">
+                            ${(summary.ctr_change || 0) >= 0 ? '↗' : '↘'} ${Math.abs(summary.ctr_change || 0)}%
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline Chart -->
+                <div class="chart-section">
+                    <h3>📈 Évolution dans le temps</h3>
+                    <div class="chart-container" style="height: 400px;">
+                        <canvas id="linkedInAdsTimelineChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Conversions by Type -->
+                <div class="chart-section">
+                    <h3>🎯 Conversions par Type</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="linkedInAdsConversionsChart"></canvas>
+                        </div>
+                        <div>
+                            <table class="data-table" id="linkedInAdsConversionsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Type de Conversion</th>
+                                        <th class="number">Nombre</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Campaigns Table -->
+                <div class="chart-section">
+                    <h3>📋 Performance par Campagne</h3>
+                    <table class="data-table" id="linkedInAdsCampaignsTable">
+                        <thead>
+                            <tr>
+                                <th>Campagne</th>
+                                <th class="number">Impressions</th>
+                                <th class="number">Clics</th>
+                                <th class="number">Dépense</th>
+                                <th class="number">CTR</th>
+                                <th class="number">CPC</th>
+                                <th class="number">Leads</th>
+                                <th class="number">Conversions</th>
+                                <th class="number">Engagements</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        // Populate charts and tables
+        this.renderLinkedInAdsTimelineChart(timeline);
+        this.renderLinkedInAdsConversionsChart(conversions_by_type);
+        this.populateLinkedInAdsConversionsTable(conversions_by_type);
+        this.populateLinkedInAdsCampaignsTable(campaigns);
+    }
+
+    renderLinkedInAdsTimelineChart(timeline) {
+        const ctx = document.getElementById('linkedInAdsTimelineChart');
+        if (!ctx) return;
+
+        this.charts.linkedInAdsTimeline = new Chart(ctx.getContext('2d'), {
+            data: {
+                labels: timeline.map(d => {
+                    const date = new Date(d.date?.value || d.date);
+                    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+                }),
+                datasets: [
+                    {
+                        type: 'line',
+                        label: 'Dépense (€)',
+                        data: timeline.map(d => d.spend || 0),
+                        borderColor: '#0077B5',
+                        backgroundColor: 'rgba(0, 119, 181, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Leads',
+                        data: timeline.map(d => d.leads || 0),
+                        backgroundColor: '#11845B',
+                        borderColor: '#11845B',
+                        borderWidth: 1,
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Conversions',
+                        data: timeline.map(d => d.conversions || 0),
+                        backgroundColor: '#0B6CD9',
+                        borderColor: '#0B6CD9',
+                        borderWidth: 1,
+                        yAxisID: 'y'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        titleFont: {
+                            family: 'Inter',
+                            size: 13,
+                            weight: '700'
+                        },
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += context.parsed.y.toLocaleString('fr-FR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    }) + '€';
+                                } else {
+                                    label += context.parsed.y.toLocaleString('fr-FR');
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Leads & Conversions',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Dépense (€)',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            },
+                            callback: function(value) {
+                                return value.toLocaleString('fr-FR', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0
+                                }) + '€';
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    renderLinkedInAdsConversionsChart(conversions) {
+        const ctx = document.getElementById('linkedInAdsConversionsChart');
+        if (!ctx) return;
+
+        // Color conversions based on whether they are leads or not
+        const colors = conversions.map(c =>
+            c.is_lead ? '#11845B' : '#0077B5'
+        );
+
+        this.charts.linkedInAdsConversions = new Chart(ctx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: conversions.map(c => c.type),
+                datasets: [{
+                    data: conversions.map(c => c.count),
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: {
+                                family: 'Inter',
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value.toLocaleString('fr-FR')} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    populateLinkedInAdsConversionsTable(conversions) {
+        const tbody = document.querySelector('#linkedInAdsConversionsTable tbody');
+        if (!tbody) return;
+
+        conversions.forEach(conv => {
+            const isLead = conv.is_lead;
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="color: ${isLead ? '#11845B' : '#0077B5'}; font-weight: 600;">
+                    ${conv.type}
+                    ${isLead ? '<span style="font-size: 0.85em; margin-left: 8px; padding: 2px 6px; background: #d4f4dd; border-radius: 4px;">Lead</span>' : ''}
+                </td>
+                <td class="number" style="color: ${isLead ? '#11845B' : '#0077B5'}; font-weight: 600;">
+                    ${this.formatNumber(conv.count || 0)}
+                </td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+
+    populateLinkedInAdsCampaignsTable(campaigns) {
+        const tbody = document.querySelector('#linkedInAdsCampaignsTable tbody');
+        if (!tbody) return;
+
+        campaigns.slice(0, 20).forEach(campaign => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${campaign.campaign_name || 'N/A'}</td>
+                <td class="number">${this.formatNumber(campaign.impressions || 0)}</td>
+                <td class="number">${this.formatNumber(campaign.clicks || 0)}</td>
+                <td class="number">${this.formatCurrency(campaign.cost || 0)}</td>
+                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
+                <td class="number">${this.formatCurrency(campaign.cpc || 0)}</td>
+                <td class="number" style="color: #11845B; font-weight: 600;">${this.formatNumber(campaign.leads || 0)}</td>
+                <td class="number" style="color: #0077B5; font-weight: 600;">${this.formatNumber(campaign.conversions || 0)}</td>
+                <td class="number">${this.formatNumber(campaign.total_engagements || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#linkedInAdsCampaignsTable');
     }
 
     async fetchGA4Data(property, dateFrom, dateTo) {
