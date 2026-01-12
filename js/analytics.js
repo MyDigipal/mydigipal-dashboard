@@ -372,7 +372,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         }
@@ -419,7 +419,7 @@ class AnalyticsManager {
                             text: 'Conversions',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -429,7 +429,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     },
@@ -442,7 +442,7 @@ class AnalyticsManager {
                             text: 'Dépense (€)',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -452,7 +452,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             },
                             callback: function(value) {
                                 return value.toLocaleString('fr-FR', {
@@ -469,7 +469,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     }
@@ -537,7 +537,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12
+                                size: 14
                             },
                             generateLabels: (chart) => {
                                 const data = chart.data;
@@ -833,7 +833,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         }
@@ -880,7 +880,7 @@ class AnalyticsManager {
                             text: 'Conversions',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -890,7 +890,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     },
@@ -903,7 +903,7 @@ class AnalyticsManager {
                             text: 'Dépense (€)',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -913,7 +913,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             },
                             callback: function(value) {
                                 return value.toLocaleString('fr-FR', {
@@ -930,7 +930,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     }
@@ -1015,7 +1015,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12
+                                size: 14
                             },
                             generateLabels: (chart) => {
                                 const data = chart.data;
@@ -1253,7 +1253,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         }
@@ -1300,7 +1300,7 @@ class AnalyticsManager {
                             text: 'Leads & Conversions',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -1310,7 +1310,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     },
@@ -1323,7 +1323,7 @@ class AnalyticsManager {
                             text: 'Dépense (€)',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -1333,7 +1333,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             },
                             callback: function(value) {
                                 return value.toLocaleString('fr-FR', {
@@ -1350,7 +1350,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     }
@@ -1389,7 +1389,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12
+                                size: 14
                             }
                         }
                     },
@@ -1620,7 +1620,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         }
@@ -1667,7 +1667,7 @@ class AnalyticsManager {
                             text: 'Leads & Conversions',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -1677,7 +1677,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     },
@@ -1690,7 +1690,7 @@ class AnalyticsManager {
                             text: 'Dépense (€)',
                             font: {
                                 family: 'Inter',
-                                size: 12,
+                                size: 14,
                                 weight: '600'
                             }
                         },
@@ -1700,7 +1700,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             },
                             callback: function(value) {
                                 return value.toLocaleString('fr-FR', {
@@ -1717,7 +1717,7 @@ class AnalyticsManager {
                         ticks: {
                             font: {
                                 family: 'Inter',
-                                size: 11
+                                size: 14
                             }
                         }
                     }
@@ -1761,7 +1761,7 @@ class AnalyticsManager {
                             padding: 15,
                             font: {
                                 family: 'Inter',
-                                size: 12
+                                size: 14
                             }
                         }
                     },
