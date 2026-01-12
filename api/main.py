@@ -11,6 +11,9 @@ import json
 import uuid
 from anthropic import Anthropic
 from jinja2 import Template
+from googleapiclient.discovery import build
+from collections import defaultdict
+import unicodedata
 
 # Dashboard API v2.2 - Materialized views + Flask-Caching for performance
 
@@ -25,6 +28,122 @@ cache = Cache(app, config={
 
 client = bigquery.Client(project='mydigipal')
 
+# Google Sheets configuration (central account registry)
+SPREADSHEET_ID = '1BFcwuLQ2LbiJK0wpz6oaf44xNcsP5ilWxBwNU04n0Y4'
+SHEET_NAME = 'accounts'
+
+def normalize_client_id(client_group):
+    """Convert client_group to client_id format (snake_case)."""
+    if not client_group:
+        return None
+    normalized = unicodedata.normalize('NFD', client_group)
+    normalized = normalized.encode('ascii', 'ignore').decode('utf-8')
+    normalized = normalized.lower()
+    normalized = normalized.replace(' ', '_').replace('-', '_')
+    normalized = normalized.replace('&', 'and')
+    normalized = ''.join(c for c in normalized if c.isalnum() or c == '_')
+    return normalized
+
+@cache.cached(timeout=600, key_prefix='client_accounts_from_sheet')
+def get_client_accounts_from_sheet():
+    """
+    Load client accounts from central Google Sheet.
+    Returns dict: {client_id: {company_name, meta_ads_accounts, google_ads_accounts, ...}}
+    """
+    try:
+        # Use BigQuery service account credentials for Sheets API
+        from google.auth import default
+        from googleapiclient.discovery import build
+
+        credentials, _ = default()
+        sheets_service = build('sheets', 'v4', credentials=credentials)
+
+        # Read sheet
+        range_name = f'{SHEET_NAME}!A:G'  # Columns: canal, account_name, account_id, client_group, active, notes, category
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=range_name
+        ).execute()
+
+        rows = result.get('values', [])
+        if not rows:
+            print("[Sheets] No data found in sheet")
+            return {}
+
+        # Parse header
+        header = rows[0]
+        accounts = []
+        for row in rows[1:]:  # Skip header
+            if len(row) < len(header):
+                row.extend([''] * (len(header) - len(row)))  # Pad short rows
+
+            account = dict(zip(header, row))
+            accounts.append(account)
+
+        # Group by client_group and canal
+        client_accounts = defaultdict(lambda: {
+            'company_name': '',
+            'meta_ads_accounts': [],
+            'google_ads_accounts': [],
+            'linkedin_ads_accounts': [],
+            'gsc_domains': [],
+            'ga4_properties': []
+        })
+
+        for acc in accounts:
+            active = acc.get('active', '').strip().upper()
+            if active != 'TRUE':
+                continue  # Skip inactive accounts
+
+            client_group = acc.get('client_group', '').strip()
+            if not client_group:
+                continue
+
+            canal = acc.get('canal', '').strip().lower()
+            account_name = acc.get('account_name', '').strip()
+            account_id = acc.get('account_id', '').strip()
+
+            client_id = normalize_client_id(client_group)
+            if not client_id:
+                continue
+
+            # Set company name
+            if not client_accounts[client_id]['company_name']:
+                client_accounts[client_id]['company_name'] = client_group
+
+            # Map canal to accounts list
+            if canal == 'meta':
+                client_accounts[client_id]['meta_ads_accounts'].append(account_name)
+            elif canal == 'google':
+                client_accounts[client_id]['google_ads_accounts'].append(account_name)
+            elif canal == 'linkedin':
+                client_accounts[client_id]['linkedin_ads_accounts'].append(account_name)
+            elif canal == 'gsc':
+                client_accounts[client_id]['gsc_domains'].append(account_name)
+            elif canal == 'ga4':
+                client_accounts[client_id]['ga4_properties'].append(account_id)
+
+        # Convert lists to pipe-separated strings (like BigQuery table)
+        result = {}
+        for client_id, data in client_accounts.items():
+            result[client_id] = {
+                'client_id': client_id,
+                'company_name': data['company_name'],
+                'meta_ads_accounts': '|'.join(data['meta_ads_accounts']) if data['meta_ads_accounts'] else None,
+                'google_ads_accounts': '|'.join(data['google_ads_accounts']) if data['google_ads_accounts'] else None,
+                'linkedin_ads_accounts': '|'.join(data['linkedin_ads_accounts']) if data['linkedin_ads_accounts'] else None,
+                'gsc_domains': '|'.join(data['gsc_domains']) if data['gsc_domains'] else None,
+                'ga4_properties': '|'.join(data['ga4_properties']) if data['ga4_properties'] else None,
+            }
+
+        print(f"[Sheets] Loaded {len(result)} clients from Google Sheet")
+        return result
+
+    except Exception as e:
+        print(f"[Sheets] ERROR loading from sheet: {e}")
+        traceback.print_exc()
+        return {}
+
 # AI Reports - Anthropic Claude configuration
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY')
 anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
@@ -32,7 +151,6 @@ anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY els
 # Allowed BigQuery tables for AI Reports (security) - ANALYTICS ONLY
 ALLOWED_TABLES = [
     'mydigipal.company.clients_dim',
-    'mydigipal.company.client_accounts_mapping',
     'mydigipal.meta_ads_v2.adsMetrics',
     'mydigipal.meta_ads_v2.adsMetricsWithConversionType',
     'mydigipal.googleAds_v2.campaignPerformance',
@@ -58,14 +176,6 @@ BIGQUERY_SCHEMA = """
 - company_name (STRING): Nom de l'entreprise
 - category (STRING): Catégorie (Automotive, B2B, B2C)
 - country (STRING): Pays (FR, UK, US, etc.)
-
-## company.client_accounts_mapping (mapping comptes par client)
-- client_id (STRING): ID client
-- company_name (STRING): Nom entreprise
-- google_ads_accounts (STRING): Comptes Google Ads (séparés par |)
-- meta_ads_accounts (STRING): Comptes Meta Ads (séparés par |)
-- ga4_properties (STRING): Propriétés GA4 (séparées par |)
-- gsc_domains (STRING): Domaines Search Console (séparés par |)
 
 ## meta_ads_v2.adsMetrics (Meta Ads - campagnes)
 - account_name (STRING): Nom du compte Meta Ads
@@ -913,26 +1023,14 @@ def get_meta_ads_analytics():
         if not client_id or not date_from or not date_to:
             return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
 
-        # Get client mapping
-        mapping_query = """
-        SELECT meta_ads_accounts
-        FROM `mydigipal.company.client_accounts_mapping`
-        WHERE client_id = @client_id
-        """
+        # Get client accounts from Google Sheet
+        accounts_map = get_client_accounts_from_sheet()
+        client_data = accounts_map.get(client_id)
 
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
-            ]
-        )
-
-        mapping_result = client.query(mapping_query, job_config=job_config).result()
-        mapping_row = next(mapping_result, None)
-
-        if not mapping_row or not mapping_row.meta_ads_accounts:
+        if not client_data or not client_data.get('meta_ads_accounts'):
             return jsonify({'error': 'No Meta Ads accounts found for this client'}), 404
 
-        accounts = [acc.strip() for acc in mapping_row.meta_ads_accounts.split('|')]
+        accounts = [acc.strip() for acc in client_data['meta_ads_accounts'].split('|')]
 
         # Calculate period length for comparison
         from datetime import datetime as dt
@@ -1086,28 +1184,15 @@ def get_google_ads_analytics():
         if not client_id or not date_from or not date_to:
             return jsonify({"error": "Missing parameters"}), 400
 
-        # Get client's Google Ads accounts from mapping
-        mapping_query = """
-        SELECT google_ads_accounts
-        FROM `mydigipal.company.client_accounts_mapping`
-        WHERE client_id = @client_id
-        LIMIT 1
-        """
+        # Get client accounts from Google Sheet
+        accounts_map = get_client_accounts_from_sheet()
+        client_data = accounts_map.get(client_id)
 
-        job_config_mapping = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
-            ]
-        )
-
-        mapping_result = client.query(mapping_query, job_config=job_config_mapping).result()
-        mapping_row = next(mapping_result, None)
-
-        if not mapping_row or not mapping_row['google_ads_accounts']:
+        if not client_data or not client_data.get('google_ads_accounts'):
             return jsonify({"error": "No Google Ads accounts found for this client"}), 404
 
         # Parse accounts (pipe-separated)
-        accounts = [acc.strip() for acc in mapping_row['google_ads_accounts'].split('|')]
+        accounts = [acc.strip() for acc in client_data['google_ads_accounts'].split('|')]
 
         # Get summary data
         summary_query = """
@@ -1332,26 +1417,14 @@ def get_linkedin_ads_analytics():
         if not client_id or not date_from or not date_to:
             return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
 
-        # Get client mapping
-        mapping_query = """
-        SELECT linkedin_ads_accounts
-        FROM `mydigipal.company.client_accounts_mapping`
-        WHERE client_id = @client_id
-        """
+        # Get client accounts from Google Sheet
+        accounts_map = get_client_accounts_from_sheet()
+        client_data = accounts_map.get(client_id)
 
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
-            ]
-        )
-
-        mapping_result = client.query(mapping_query, job_config=job_config).result()
-        mapping_row = next(mapping_result, None)
-
-        if not mapping_row or not mapping_row.linkedin_ads_accounts:
+        if not client_data or not client_data.get('linkedin_ads_accounts'):
             return jsonify({'error': 'No LinkedIn Ads accounts found for this client'}), 404
 
-        accounts = [acc.strip() for acc in mapping_row.linkedin_ads_accounts.split('|')]
+        accounts = [acc.strip() for acc in client_data['linkedin_ads_accounts'].split('|')]
 
         # Calculate period length for comparison
         from datetime import datetime as dt
@@ -1554,26 +1627,11 @@ def get_paid_media_analytics():
         if not client_id or not date_from or not date_to:
             return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
 
-        # Get client mapping to check which platforms are available
-        mapping_query = """
-        SELECT
-            meta_ads_accounts,
-            google_ads_accounts,
-            linkedin_ads_accounts
-        FROM `mydigipal.company.client_accounts_mapping`
-        WHERE client_id = @client_id
-        """
+        # Get client accounts from Google Sheet
+        accounts_map = get_client_accounts_from_sheet()
+        client_data = accounts_map.get(client_id)
 
-        job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
-            ]
-        )
-
-        mapping_result = client.query(mapping_query, job_config=job_config).result()
-        mapping_row = next(mapping_result, None)
-
-        if not mapping_row:
+        if not client_data:
             return jsonify({'error': 'Client not found'}), 404
 
         # Parse available accounts
@@ -1581,14 +1639,14 @@ def get_paid_media_analytics():
         google_accounts = []
         linkedin_accounts = []
 
-        if mapping_row.meta_ads_accounts:
-            meta_accounts = [acc.strip() for acc in mapping_row.meta_ads_accounts.split('|')]
+        if client_data.get('meta_ads_accounts'):
+            meta_accounts = [acc.strip() for acc in client_data['meta_ads_accounts'].split('|')]
 
-        if mapping_row.google_ads_accounts:
-            google_accounts = [acc.strip() for acc in mapping_row.google_ads_accounts.split('|')]
+        if client_data.get('google_ads_accounts'):
+            google_accounts = [acc.strip() for acc in client_data['google_ads_accounts'].split('|')]
 
-        if mapping_row.linkedin_ads_accounts:
-            linkedin_accounts = [acc.strip() for acc in mapping_row.linkedin_ads_accounts.split('|')]
+        if client_data.get('linkedin_ads_accounts'):
+            linkedin_accounts = [acc.strip() for acc in client_data['linkedin_ads_accounts'].split('|')]
 
         # Initialize aggregated metrics
         total_impressions = 0
@@ -2023,20 +2081,14 @@ def get_search_console_data():
         if not client_id:
             return jsonify({"error": "client_id is required"}), 400
 
-        # Get client mapping
-        mapping_query = """
-        SELECT gsc_domains, company_name
-        FROM `mydigipal.company.client_accounts_mapping`
-        WHERE client_id = @client_id
-        """
-        job_config = bigquery.QueryJobConfig(query_parameters=[bigquery.ScalarQueryParameter("client_id", "STRING", client_id)])
-        mapping_result = client.query(mapping_query, job_config=job_config).result()
-        mapping_row = next(mapping_result, None)
+        # Get client accounts from Google Sheet
+        accounts_map = get_client_accounts_from_sheet()
+        client_data = accounts_map.get(client_id)
 
-        if not mapping_row or not mapping_row.gsc_domains:
+        if not client_data or not client_data.get('gsc_domains'):
             return jsonify({"error": f"No Search Console domains found for client: {client_id}"}), 404
 
-        available_domains = [domain.strip() for domain in mapping_row.gsc_domains.split('|')]
+        available_domains = [domain.strip() for domain in client_data['gsc_domains'].split('|')]
         
         if domains_filter:
             requested_domains = [d.strip() for d in domains_filter.split(',')]
@@ -2257,7 +2309,7 @@ DONNÉES DISPONIBLES:
 
 PROCESSUS DE CRÉATION DE RAPPORT:
 1. **Identifier le client** mentionné dans la question
-2. **Récupérer ses comptes** depuis client_accounts_mapping pour savoir quels comptes/domaines analyser
+2. **Filtrer les données** avec account_name, domain_name ou client_group pour isoler les comptes du client
 3. **Générer les requêtes SQL** appropriées pour chaque plateforme (Meta, Google Ads, GA4, Search Console)
 4. **Utiliser execute_sql** pour chaque requête
 5. **Analyser les résultats** et créer un rapport structuré
