@@ -1410,6 +1410,349 @@ def get_linkedin_ads_analytics():
         return jsonify({"error": f"Failed to fetch LinkedIn Ads data: {str(e)}"}), 500
 
 
+@app.route('/api/analytics/paid-media')
+@cache.cached(timeout=300, query_string=True)
+def get_paid_media_analytics():
+    """Get aggregated Paid Media analytics (Meta + Google Ads + LinkedIn) for a client"""
+    try:
+        client_id = request.args.get('client_id')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        if not client_id or not date_from or not date_to:
+            return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
+
+        # Get client mapping to check which platforms are available
+        mapping_query = """
+        SELECT
+            meta_ads_accounts,
+            google_ads_accounts,
+            linkedin_ads_accounts
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE client_id = @client_id
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
+            ]
+        )
+
+        mapping_result = client.query(mapping_query, job_config=job_config).result()
+        mapping_row = next(mapping_result, None)
+
+        if not mapping_row:
+            return jsonify({'error': 'Client not found'}), 404
+
+        # Parse available accounts
+        meta_accounts = []
+        google_accounts = []
+        linkedin_accounts = []
+
+        if mapping_row.meta_ads_accounts:
+            meta_accounts = [acc.strip() for acc in mapping_row.meta_ads_accounts.split('|')]
+
+        if mapping_row.google_ads_accounts:
+            google_accounts = [acc.strip() for acc in mapping_row.google_ads_accounts.split('|')]
+
+        if mapping_row.linkedin_ads_accounts:
+            linkedin_accounts = [acc.strip() for acc in mapping_row.linkedin_ads_accounts.split('|')]
+
+        # Initialize aggregated metrics
+        total_impressions = 0
+        total_clicks = 0
+        total_spend = 0
+        total_leads = 0
+        total_conversions = 0
+
+        timeline_data = {}  # {date: {impressions, clicks, spend, leads, conversions}}
+        platform_breakdown = []
+        all_campaigns = []
+
+        # Helper function to classify leads vs conversions
+        def is_lead(conversion_type):
+            if not conversion_type:
+                return False
+            lower_type = conversion_type.lower()
+            return 'lead' in lower_type or 'formulaire' in lower_type or 'form' in lower_type
+
+        # Fetch Meta Ads data
+        if meta_accounts:
+            try:
+                meta_query = """
+                SELECT
+                    'Meta Ads' as platform,
+                    date_start as date,
+                    SUM(CAST(impressions AS INT64)) as impressions,
+                    SUM(CAST(clicks AS INT64)) as clicks,
+                    SUM(CAST(spend AS FLOAT64)) as spend,
+                    0 as leads,
+                    0 as conversions
+                FROM `mydigipal.meta_ads_v2.adsMetrics`
+                WHERE account_name IN UNNEST(@accounts)
+                  AND date_start BETWEEN @date_from AND @date_to
+                GROUP BY date_start
+                ORDER BY date_start
+                """
+
+                meta_job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ArrayQueryParameter("accounts", "STRING", meta_accounts),
+                        bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                        bigquery.ScalarQueryParameter("date_to", "DATE", date_to)
+                    ]
+                )
+
+                meta_results = client.query(meta_query, job_config=meta_job_config).result()
+
+                meta_totals = {'impressions': 0, 'clicks': 0, 'spend': 0}
+
+                for row in meta_results:
+                    date_key = str(row['date'])
+                    if date_key not in timeline_data:
+                        timeline_data[date_key] = {'impressions': 0, 'clicks': 0, 'spend': 0, 'leads': 0, 'conversions': 0}
+
+                    timeline_data[date_key]['impressions'] += row['impressions'] or 0
+                    timeline_data[date_key]['clicks'] += row['clicks'] or 0
+                    timeline_data[date_key]['spend'] += row['spend'] or 0
+
+                    meta_totals['impressions'] += row['impressions'] or 0
+                    meta_totals['clicks'] += row['clicks'] or 0
+                    meta_totals['spend'] += row['spend'] or 0
+
+                # Get Meta conversions by type
+                meta_conv_query = """
+                SELECT
+                    conversion_type,
+                    CAST(SUM(conversions) AS INT64) as count
+                FROM `mydigipal.meta_ads_v2.adsMetricsWithConversionType`
+                WHERE account_name IN UNNEST(@accounts)
+                  AND date_start BETWEEN @date_from AND @date_to
+                  AND conversions > 0
+                GROUP BY conversion_type
+                """
+
+                meta_conv_results = client.query(meta_conv_query, job_config=meta_job_config).result()
+
+                meta_leads = 0
+                meta_conversions = 0
+
+                for row in meta_conv_results:
+                    count = row['count'] or 0
+                    if is_lead(row['conversion_type']):
+                        meta_leads += count
+                    else:
+                        meta_conversions += count
+
+                total_impressions += meta_totals['impressions']
+                total_clicks += meta_totals['clicks']
+                total_spend += meta_totals['spend']
+                total_leads += meta_leads
+                total_conversions += meta_conversions
+
+                platform_breakdown.append({
+                    'platform': 'Meta Ads',
+                    'impressions': meta_totals['impressions'],
+                    'clicks': meta_totals['clicks'],
+                    'spend': meta_totals['spend'],
+                    'leads': meta_leads,
+                    'conversions': meta_conversions,
+                    'ctr': (meta_totals['clicks'] / meta_totals['impressions'] * 100) if meta_totals['impressions'] > 0 else 0
+                })
+
+            except Exception as e:
+                print(f"Error fetching Meta Ads: {e}")
+
+        # Fetch Google Ads data
+        if google_accounts:
+            try:
+                google_query = """
+                SELECT
+                    'Google Ads' as platform,
+                    PARSE_DATE('%Y-%m-%d', date) as date,
+                    SUM(impressions) as impressions,
+                    SUM(clicks) as clicks,
+                    SUM(cost) as spend,
+                    0 as leads,
+                    0 as conversions
+                FROM `mydigipal.googleAds_v2.campaignPerformance`
+                WHERE account IN UNNEST(@accounts)
+                  AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+                GROUP BY date
+                ORDER BY date
+                """
+
+                google_job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ArrayQueryParameter("accounts", "STRING", google_accounts),
+                        bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                        bigquery.ScalarQueryParameter("date_to", "DATE", date_to)
+                    ]
+                )
+
+                google_results = client.query(google_query, job_config=google_job_config).result()
+
+                google_totals = {'impressions': 0, 'clicks': 0, 'spend': 0}
+
+                for row in google_results:
+                    date_key = str(row['date'])
+                    if date_key not in timeline_data:
+                        timeline_data[date_key] = {'impressions': 0, 'clicks': 0, 'spend': 0, 'leads': 0, 'conversions': 0}
+
+                    timeline_data[date_key]['impressions'] += row['impressions'] or 0
+                    timeline_data[date_key]['clicks'] += row['clicks'] or 0
+                    timeline_data[date_key]['spend'] += row['spend'] or 0
+
+                    google_totals['impressions'] += row['impressions'] or 0
+                    google_totals['clicks'] += row['clicks'] or 0
+                    google_totals['spend'] += row['spend'] or 0
+
+                # Get Google Ads conversions by type
+                google_conv_query = """
+                SELECT
+                    conversion_type,
+                    CAST(SUM(conversions) AS INT64) as count
+                FROM `mydigipal.googleAds_v2.campaignPerformanceWithConversionType`
+                WHERE account IN UNNEST(@accounts)
+                  AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+                  AND conversions > 0
+                GROUP BY conversion_type
+                """
+
+                google_conv_results = client.query(google_conv_query, job_config=google_job_config).result()
+
+                google_leads = 0
+                google_conversions = 0
+
+                for row in google_conv_results:
+                    count = row['count'] or 0
+                    if is_lead(row['conversion_type']):
+                        google_leads += count
+                    else:
+                        google_conversions += count
+
+                total_impressions += google_totals['impressions']
+                total_clicks += google_totals['clicks']
+                total_spend += google_totals['spend']
+                total_leads += google_leads
+                total_conversions += google_conversions
+
+                platform_breakdown.append({
+                    'platform': 'Google Ads',
+                    'impressions': google_totals['impressions'],
+                    'clicks': google_totals['clicks'],
+                    'spend': google_totals['spend'],
+                    'leads': google_leads,
+                    'conversions': google_conversions,
+                    'ctr': (google_totals['clicks'] / google_totals['impressions'] * 100) if google_totals['impressions'] > 0 else 0
+                })
+
+            except Exception as e:
+                print(f"Error fetching Google Ads: {e}")
+
+        # Fetch LinkedIn Ads data
+        if linkedin_accounts:
+            try:
+                linkedin_query = """
+                SELECT
+                    'LinkedIn Ads' as platform,
+                    date_start as date,
+                    SUM(impressions) as impressions,
+                    SUM(clicks) as clicks,
+                    SUM(costInLocalCurrency) as spend,
+                    SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as leads,
+                    SUM(COALESCE(externalWebsiteConversions, 0)) as conversions
+                FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+                WHERE account_name IN UNNEST(@accounts)
+                  AND date_start BETWEEN @date_from AND @date_to
+                GROUP BY date_start
+                ORDER BY date_start
+                """
+
+                linkedin_job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ArrayQueryParameter("accounts", "STRING", linkedin_accounts),
+                        bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                        bigquery.ScalarQueryParameter("date_to", "DATE", date_to)
+                    ]
+                )
+
+                linkedin_results = client.query(linkedin_query, job_config=linkedin_job_config).result()
+
+                linkedin_totals = {'impressions': 0, 'clicks': 0, 'spend': 0, 'leads': 0, 'conversions': 0}
+
+                for row in linkedin_results:
+                    date_key = str(row['date'])
+                    if date_key not in timeline_data:
+                        timeline_data[date_key] = {'impressions': 0, 'clicks': 0, 'spend': 0, 'leads': 0, 'conversions': 0}
+
+                    timeline_data[date_key]['impressions'] += row['impressions'] or 0
+                    timeline_data[date_key]['clicks'] += row['clicks'] or 0
+                    timeline_data[date_key]['spend'] += row['spend'] or 0
+                    timeline_data[date_key]['leads'] += row['leads'] or 0
+                    timeline_data[date_key]['conversions'] += row['conversions'] or 0
+
+                    linkedin_totals['impressions'] += row['impressions'] or 0
+                    linkedin_totals['clicks'] += row['clicks'] or 0
+                    linkedin_totals['spend'] += row['spend'] or 0
+                    linkedin_totals['leads'] += row['leads'] or 0
+                    linkedin_totals['conversions'] += row['conversions'] or 0
+
+                total_impressions += linkedin_totals['impressions']
+                total_clicks += linkedin_totals['clicks']
+                total_spend += linkedin_totals['spend']
+                total_leads += linkedin_totals['leads']
+                total_conversions += linkedin_totals['conversions']
+
+                platform_breakdown.append({
+                    'platform': 'LinkedIn Ads',
+                    'impressions': linkedin_totals['impressions'],
+                    'clicks': linkedin_totals['clicks'],
+                    'spend': linkedin_totals['spend'],
+                    'leads': linkedin_totals['leads'],
+                    'conversions': linkedin_totals['conversions'],
+                    'ctr': (linkedin_totals['clicks'] / linkedin_totals['impressions'] * 100) if linkedin_totals['impressions'] > 0 else 0
+                })
+
+            except Exception as e:
+                print(f"Error fetching LinkedIn Ads: {e}")
+
+        # Convert timeline_data to array sorted by date
+        timeline = []
+        for date_key in sorted(timeline_data.keys()):
+            timeline.append({
+                'date': date_key,
+                **timeline_data[date_key]
+            })
+
+        # Calculate summary metrics
+        summary = {
+            'total_impressions': total_impressions,
+            'total_clicks': total_clicks,
+            'total_spend': total_spend,
+            'total_leads': total_leads,
+            'total_conversions': total_conversions,
+            'avg_ctr': (total_clicks / total_impressions * 100) if total_impressions > 0 else 0,
+            'avg_cpc': (total_spend / total_clicks) if total_clicks > 0 else 0
+        }
+
+        return jsonify({
+            'summary': summary,
+            'timeline': timeline,
+            'platform_breakdown': platform_breakdown,
+            'platforms_available': {
+                'meta': len(meta_accounts) > 0,
+                'google': len(google_accounts) > 0,
+                'linkedin': len(linkedin_accounts) > 0
+            }
+        })
+
+    except Exception as e:
+        print(f"Error fetching Paid Media analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch Paid Media data: {str(e)}"}), 500
+
+
 @app.route('/api/analytics/ga4')
 @cache.cached(timeout=300, query_string=True)
 def get_ga4_analytics():
