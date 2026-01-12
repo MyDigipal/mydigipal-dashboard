@@ -413,17 +413,17 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Période</label>
-                        <div class="analytics-daterange">
-                            <input type="date" id="analyticsDateFrom">
-                            <span class="daterange-separator">→</span>
-                            <input type="date" id="analyticsDateTo">
-                        </div>
-                    </div>
-                    <div class="filter-group">
                         <label>&nbsp;</label>
                         <button id="analyticsLoadBtn" class="btn-primary">📊 Charger le rapport</button>
                     </div>
+                </div>
+
+                <!-- Account selection panel (shows when multiple accounts available) -->
+                <div id="analyticsAccountSelection" class="analytics-account-panel" style="display: none;">
+                    <div class="account-panel-header">
+                        <strong>Comptes à inclure:</strong>
+                    </div>
+                    <div id="analyticsAccountCheckboxes" class="account-checkbox-list"></div>
                 </div>
 
                 <!-- Rapport container -->

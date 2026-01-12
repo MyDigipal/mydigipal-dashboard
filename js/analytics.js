@@ -10,6 +10,32 @@ class AnalyticsManager {
         this.charts = {};
     }
 
+    // Classify conversion as Lead or regular Conversion
+    isLead(conversionType) {
+        if (!conversionType) return false;
+        const lowerType = conversionType.toLowerCase();
+        return lowerType.includes('lead') ||
+               lowerType.includes('formulaire') ||
+               lowerType.includes('form');
+    }
+
+    // Calculate leads and conversions from conversion types array
+    calculateLeadsAndConversions(conversions_by_type) {
+        let totalLeads = 0;
+        let totalConversions = 0;
+
+        conversions_by_type.forEach(conv => {
+            const count = conv.count || 0;
+            if (this.isLead(conv.type)) {
+                totalLeads += count;
+            } else {
+                totalConversions += count;
+            }
+        });
+
+        return { totalLeads, totalConversions };
+    }
+
     init() {
         console.log('[Analytics] Initializing...');
         this.loadClients();
@@ -56,26 +82,33 @@ class AnalyticsManager {
     }
 
     setDefaultDates() {
-        const today = new Date();
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(today.getDate() - 30);
+        // No longer needed - using global dates from dashboard
+    }
 
-        const dateFromInput = document.getElementById('analyticsDateFrom');
-        const dateToInput = document.getElementById('analyticsDateTo');
+    getGlobalDates() {
+        // Get dates from global date filter (set by app.js)
+        const dateFrom = document.getElementById('dateFrom')?.value;
+        const dateTo = document.getElementById('dateTo')?.value;
 
-        if (dateFromInput) {
-            dateFromInput.value = thirtyDaysAgo.toISOString().split('T')[0];
+        if (!dateFrom || !dateTo) {
+            // Fallback to last 30 days
+            const today = new Date();
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(today.getDate() - 30);
+
+            return {
+                dateFrom: thirtyDaysAgo.toISOString().split('T')[0],
+                dateTo: today.toISOString().split('T')[0]
+            };
         }
-        if (dateToInput) {
-            dateToInput.value = today.toISOString().split('T')[0];
-        }
+
+        return { dateFrom, dateTo };
     }
 
     async loadReport() {
-        const clientId = document.getElementById('analyticsClient').value;
-        const source = document.getElementById('analyticsSource').value;
-        const dateFrom = document.getElementById('analyticsDateFrom').value;
-        const dateTo = document.getElementById('analyticsDateTo').value;
+        const clientId = document.getElementById('analyticsClient')?.value;
+        const source = document.getElementById('analyticsSource')?.value;
+        const { dateFrom, dateTo } = this.getGlobalDates();
 
         if (!clientId || !source) {
             alert('Veuillez sélectionner un client et une source');
@@ -89,6 +122,10 @@ class AnalyticsManager {
 
         // Show loading
         const container = document.getElementById('analyticsReportContainer');
+        if (!container) {
+            console.error('[Analytics] Report container not found');
+            return;
+        }
         container.innerHTML = '<div class="loading">⏳ Chargement du rapport...</div>';
 
         try {
@@ -97,16 +134,23 @@ class AnalyticsManager {
             let data;
             switch (source) {
                 case 'meta':
+                    // Hide account selection panel for single-account sources
+                    this.hideAccountSelectionPanel();
                     data = await this.fetchMetaAdsData(clientId, dateFrom, dateTo);
                     this.renderMetaAdsReport(data);
                     break;
                 case 'google-ads':
+                    // Hide account selection panel for single-account sources
+                    this.hideAccountSelectionPanel();
                     data = await this.fetchGoogleAdsData(clientId, dateFrom, dateTo);
                     this.renderGoogleAdsReport(data);
                     break;
                 case 'ga4':
+                    // Hide account selection panel for single-account sources
+                    this.hideAccountSelectionPanel();
                     // Use client name or alternative name as GA4 property
                     const clientSelect = document.getElementById('analyticsClient');
+                    if (!clientSelect) return;
                     const selectedOption = clientSelect.options[clientSelect.selectedIndex];
                     const clientName = selectedOption.textContent.split('(')[0].trim();
 
@@ -116,6 +160,7 @@ class AnalyticsManager {
                 case 'search-console':
                     // Use client_id for Search Console
                     const scClientSelect = document.getElementById('analyticsClient');
+                    if (!scClientSelect) return;
                     const scSelectedOption = scClientSelect.options[scClientSelect.selectedIndex];
                     const scClientName = scSelectedOption.textContent;
                     const scClientId = scSelectedOption.value;
@@ -123,19 +168,18 @@ class AnalyticsManager {
                     // Check if client has multiple GSC domains
                     const clientData = JSON.parse(scSelectedOption.dataset.clientData || '{}');
                     if (clientData.gsc_domains_list && clientData.gsc_domains_list.length > 1) {
-                        const selectedDomains = await this.showAccountSelection(scClientId, 'search-console', clientData.gsc_domains_list);
-                        if (selectedDomains === null) {
-                            container.innerHTML = '';
-                            return;
-                        }
-                        this.selectedAccounts = selectedDomains;
+                        // Show panel instead of modal
+                        this.showAccountSelectionPanel(clientData.gsc_domains_list);
                     } else {
+                        // Hide panel for single domain
+                        this.hideAccountSelectionPanel();
                         this.selectedAccounts = null;
                     }
 
                     await this.renderSearchConsoleReport(scClientId, scClientName, dateFrom, dateTo);
                     break;
                 case 'multi':
+                    this.hideAccountSelectionPanel();
                     container.innerHTML = '<div class="coming-soon">📊 Multi-Source - Bientôt disponible</div>';
                     break;
             }
@@ -161,6 +205,10 @@ class AnalyticsManager {
         console.log('[Analytics] Rendering Meta Ads report', data);
 
         const container = document.getElementById('analyticsReportContainer');
+        if (!container) {
+            console.error('[Analytics] Report container not found');
+            return;
+        }
 
         // Destroy existing charts
         Object.values(this.charts).forEach(chart => {
@@ -175,58 +223,56 @@ class AnalyticsManager {
         const campaigns = data.campaigns || [];
         const conversions_by_type = data.conversions_by_type || [];
 
+        // Calculate leads and conversions
+        const { totalLeads, totalConversions } = this.calculateLeadsAndConversions(conversions_by_type);
+
         container.innerHTML = `
             <!-- KPI Cards -->
             <div class="analytics-kpi-grid">
                 <div class="analytics-kpi-card">
-                    <div class="kpi-label">Impressions</div>
-                    <div class="kpi-value">${this.formatNumber(summary.total_impressions || 0)}</div>
-                    <div class="kpi-change ${(summary.impressions_change || 0) >= 0 ? 'positive' : 'negative'}">
-                        ${(summary.impressions_change || 0) >= 0 ? '↑' : '↓'} ${Math.abs(summary.impressions_change || 0)}%
-                    </div>
-                </div>
-                <div class="analytics-kpi-card">
-                    <div class="kpi-label">Clics</div>
-                    <div class="kpi-value">${this.formatNumber(summary.total_clicks || 0)}</div>
-                    <div class="kpi-change ${(summary.clicks_change || 0) >= 0 ? 'positive' : 'negative'}">
-                        ${(summary.clicks_change || 0) >= 0 ? '↑' : '↓'} ${Math.abs(summary.clicks_change || 0)}%
-                    </div>
-                </div>
-                <div class="analytics-kpi-card">
-                    <div class="kpi-label">CTR</div>
-                    <div class="kpi-value">${(summary.avg_ctr || 0).toFixed(2)}%</div>
-                    <div class="kpi-change ${(summary.ctr_change || 0) >= 0 ? 'positive' : 'negative'}">
-                        ${(summary.ctr_change || 0) >= 0 ? '↑' : '↓'} ${Math.abs(summary.ctr_change || 0)}%
-                    </div>
-                </div>
-                <div class="analytics-kpi-card">
-                    <div class="kpi-label">Dépense</div>
+                    <div class="kpi-label">Total Dépense</div>
                     <div class="kpi-value">${this.formatCurrency(summary.total_spend || 0)}</div>
-                    <div class="kpi-change ${(summary.spend_change || 0) >= 0 ? 'positive' : 'negative'}">
-                        ${(summary.spend_change || 0) >= 0 ? '↑' : '↓'} ${Math.abs(summary.spend_change || 0)}%
-                    </div>
                 </div>
                 <div class="analytics-kpi-card">
-                    <div class="kpi-label">CPC</div>
-                    <div class="kpi-value">${this.formatCurrency(summary.avg_cpc || 0)}</div>
-                    <div class="kpi-change ${(summary.cpc_change || 0) <= 0 ? 'positive' : 'negative'}">
-                        ${(summary.cpc_change || 0) <= 0 ? '↓' : '↑'} ${Math.abs(summary.cpc_change || 0)}%
-                    </div>
+                    <div class="kpi-label">Total Leads</div>
+                    <div class="kpi-value">${this.formatNumber(totalLeads)}</div>
                 </div>
                 <div class="analytics-kpi-card">
-                    <div class="kpi-label">Conversions</div>
-                    <div class="kpi-value">${this.formatNumber(summary.total_conversions || 0)}</div>
-                    <div class="kpi-change ${(summary.conversions_change || 0) >= 0 ? 'positive' : 'negative'}">
-                        ${(summary.conversions_change || 0) >= 0 ? '↑' : '↓'} ${Math.abs(summary.conversions_change || 0)}%
-                    </div>
+                    <div class="kpi-label">Total Conversions</div>
+                    <div class="kpi-value">${this.formatNumber(totalConversions)}</div>
+                </div>
+                <div class="analytics-kpi-card">
+                    <div class="kpi-label">CTR moyen</div>
+                    <div class="kpi-value">${(summary.avg_ctr || 0).toFixed(2)}%</div>
                 </div>
             </div>
 
             <!-- Charts Section -->
             <div class="analytics-section">
-                <h3>Performance dans le temps</h3>
+                <h3>Dépense et Conversions dans le temps</h3>
                 <div class="chart-container">
                     <canvas id="metaTimelineChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Conversions by Type Section -->
+            <div class="analytics-section">
+                <h3>Conversions par type</h3>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
+                    <div class="chart-container" style="height: 300px;">
+                        <canvas id="metaConversionsChart"></canvas>
+                    </div>
+                    <div>
+                        <table class="analytics-table" id="metaConversionsTable">
+                            <thead>
+                                <tr>
+                                    <th>Type de conversion</th>
+                                    <th class="number">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -240,22 +286,15 @@ class AnalyticsManager {
                                 <th class="sortable" data-col="0">Campagne</th>
                                 <th class="sortable" data-col="1">Impressions</th>
                                 <th class="sortable" data-col="2">Clics</th>
-                                <th class="sortable" data-col="3">CTR (%)</th>
-                                <th class="sortable" data-col="4">Dépense (€)</th>
+                                <th class="sortable" data-col="3">Dépense (€)</th>
+                                <th class="sortable" data-col="4">CTR (%)</th>
                                 <th class="sortable" data-col="5">CPC (€)</th>
-                                <th class="sortable" data-col="6">Conv.</th>
+                                <th class="sortable" data-col="6">Leads</th>
+                                <th class="sortable" data-col="7">Conversions</th>
                             </tr>
                         </thead>
                         <tbody></tbody>
                     </table>
-                </div>
-            </div>
-
-            <!-- Conversions Breakdown -->
-            <div class="analytics-section">
-                <h3>Conversions par type</h3>
-                <div class="chart-container" style="height: 300px;">
-                    <canvas id="metaConversionsChart"></canvas>
                 </div>
             </div>
         `;
@@ -281,7 +320,7 @@ class AnalyticsManager {
         if (!ctx) return;
 
         this.charts.metaTimeline = new Chart(ctx.getContext('2d'), {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: timeline.map(d => {
                     const date = new Date(d.date);
@@ -289,34 +328,24 @@ class AnalyticsManager {
                 }),
                 datasets: [
                     {
-                        label: 'Impressions',
-                        data: timeline.map(d => d.impressions),
-                        borderColor: '#0B6CD9',
-                        backgroundColor: 'rgba(11, 108, 217, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        yAxisID: 'y'
-                    },
-                    {
-                        label: 'Clics',
-                        data: timeline.map(d => d.clicks),
-                        borderColor: '#11845B',
-                        backgroundColor: 'rgba(17, 132, 91, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        yAxisID: 'y'
-                    },
-                    {
+                        type: 'line',
                         label: 'Dépense (€)',
                         data: timeline.map(d => d.spend),
                         borderColor: '#D5691B',
                         backgroundColor: 'rgba(213, 105, 27, 0.1)',
                         borderWidth: 2,
-                        fill: true,
+                        fill: false,
                         tension: 0.4,
                         yAxisID: 'y1'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Conversions',
+                        data: timeline.map(d => d.conversions || 0),
+                        backgroundColor: '#0B6CD9',
+                        borderColor: '#0B6CD9',
+                        borderWidth: 1,
+                        yAxisID: 'y'
                     }
                 ]
             },
@@ -353,7 +382,24 @@ class AnalyticsManager {
                             size: 12
                         },
                         padding: 12,
-                        cornerRadius: 8
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += context.parsed.y.toLocaleString('fr-FR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    }) + '€';
+                                } else {
+                                    label += context.parsed.y.toLocaleString('fr-FR');
+                                }
+                                return label;
+                            }
+                        }
                     }
                 },
                 scales: {
@@ -361,6 +407,15 @@ class AnalyticsManager {
                         type: 'linear',
                         display: true,
                         position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Conversions',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
                         grid: {
                             color: 'rgba(0, 0, 0, 0.05)'
                         },
@@ -375,6 +430,15 @@ class AnalyticsManager {
                         type: 'linear',
                         display: true,
                         position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Dépense (€)',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
                         grid: {
                             drawOnChartArea: false,
                         },
@@ -414,15 +478,20 @@ class AnalyticsManager {
         tbody.innerHTML = '';
 
         campaigns.forEach(campaign => {
+            // Calculate leads and conversions for this campaign
+            const conversions_by_type = campaign.conversions_by_type || [];
+            const { totalLeads, totalConversions } = this.calculateLeadsAndConversions(conversions_by_type);
+
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${campaign.campaign_name || 'N/A'}</td>
                 <td class="number">${this.formatNumber(campaign.impressions || 0)}</td>
                 <td class="number">${this.formatNumber(campaign.clicks || 0)}</td>
-                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
                 <td class="number">${this.formatCurrency(campaign.spend || 0)}</td>
+                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
                 <td class="number">${this.formatCurrency(campaign.cpc || 0)}</td>
-                <td class="number">${this.formatNumber(campaign.conversions || 0)}</td>
+                <td class="number" style="color: #11845B; font-weight: 600;">${this.formatNumber(totalLeads)}</td>
+                <td class="number" style="color: #0B6CD9; font-weight: 600;">${this.formatNumber(totalConversions)}</td>
             `;
             tbody.appendChild(row);
         });
@@ -435,19 +504,20 @@ class AnalyticsManager {
         const ctx = document.getElementById('metaConversionsChart');
         if (!ctx) return;
 
+        // Color conversions based on whether they are leads or not
+        const colors = conversions.map(c =>
+            this.isLead(c.type) ? '#11845B' : '#0B6CD9'
+        );
+
         this.charts.metaConversions = new Chart(ctx.getContext('2d'), {
             type: 'doughnut',
             data: {
                 labels: conversions.map(c => c.type),
                 datasets: [{
                     data: conversions.map(c => c.count),
-                    backgroundColor: [
-                        '#0B6CD9',
-                        '#11845B',
-                        '#D5691B',
-                        '#8b5cf6',
-                        '#DC2626'
-                    ]
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: '#fff'
                 }]
             },
             options: {
@@ -461,11 +531,68 @@ class AnalyticsManager {
                             font: {
                                 family: 'Inter',
                                 size: 12
+                            },
+                            generateLabels: (chart) => {
+                                const data = chart.data;
+                                return data.labels.map((label, i) => ({
+                                    text: label,
+                                    fillStyle: data.datasets[0].backgroundColor[i],
+                                    hidden: false,
+                                    index: i
+                                }));
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        titleFont: {
+                            family: 'Inter',
+                            size: 13,
+                            weight: '700'
+                        },
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value} (${percentage}%)`;
                             }
                         }
                     }
                 }
             }
+        });
+
+        // Populate conversions table
+        this.populateConversionsTable(conversions);
+    }
+
+    populateConversionsTable(conversions) {
+        const tbody = document.querySelector('#metaConversionsTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        conversions.forEach(conv => {
+            const isLead = this.isLead(conv.type);
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="color: ${isLead ? '#11845B' : '#0B6CD9'}; font-weight: 600;">
+                    ${conv.type}
+                    ${isLead ? '<span style="font-size: 0.85em; margin-left: 8px; padding: 2px 6px; background: #d4f4dd; border-radius: 4px;">Lead</span>' : ''}
+                </td>
+                <td class="number" style="color: ${isLead ? '#11845B' : '#0B6CD9'}; font-weight: 600;">
+                    ${this.formatNumber(conv.count || 0)}
+                </td>
+            `;
+            tbody.appendChild(row);
         });
     }
 
@@ -526,6 +653,10 @@ class AnalyticsManager {
         console.log('[Analytics] Rendering Google Ads report', data);
 
         const container = document.getElementById('analyticsReportContainer');
+        if (!container) {
+            console.error('[Analytics] Report container not found');
+            return;
+        }
 
         // Destroy existing charts
         Object.values(this.charts).forEach(chart => {
@@ -536,6 +667,10 @@ class AnalyticsManager {
         this.charts = {};
 
         const s = data.summary;
+        const conversions_by_type = data.conversions_by_type || [];
+
+        // Calculate leads and conversions
+        const { totalLeads, totalConversions } = this.calculateLeadsAndConversions(conversions_by_type);
 
         container.innerHTML = `
             <div class="analytics-report">
@@ -546,73 +681,44 @@ class AnalyticsManager {
                 <!-- KPIs -->
                 <div class="analytics-kpi-grid">
                     <div class="analytics-kpi-card">
-                        <div class="kpi-label">Impressions</div>
-                        <div class="kpi-value">${this.formatNumber(s.total_impressions || 0)}</div>
-                    </div>
-                    <div class="analytics-kpi-card">
-                        <div class="kpi-label">Clics</div>
-                        <div class="kpi-value">${this.formatNumber(s.total_clicks || 0)}</div>
-                    </div>
-                    <div class="analytics-kpi-card">
-                        <div class="kpi-label">Coût</div>
+                        <div class="kpi-label">Total Dépense</div>
                         <div class="kpi-value">${this.formatCurrency(s.total_cost || 0)}</div>
                     </div>
                     <div class="analytics-kpi-card">
-                        <div class="kpi-label">CTR</div>
+                        <div class="kpi-label">Total Leads</div>
+                        <div class="kpi-value">${this.formatNumber(totalLeads)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">Total Conversions</div>
+                        <div class="kpi-value">${this.formatNumber(totalConversions)}</div>
+                    </div>
+                    <div class="analytics-kpi-card">
+                        <div class="kpi-label">CTR moyen</div>
                         <div class="kpi-value">${(s.avg_ctr || 0).toFixed(2)}%</div>
-                    </div>
-                    <div class="analytics-kpi-card">
-                        <div class="kpi-label">CPC</div>
-                        <div class="kpi-value">${this.formatCurrency(s.avg_cpc || 0)}</div>
-                    </div>
-                    <div class="analytics-kpi-card">
-                        <div class="kpi-label">Conversions</div>
-                        <div class="kpi-value">${this.formatNumber(s.total_conversions || 0)}</div>
                     </div>
                 </div>
 
                 <!-- Timeline Chart -->
                 <div class="analytics-section">
-                    <h3>Tendance</h3>
+                    <h3>Dépense et Conversions dans le temps</h3>
                     <div class="chart-container" style="height: 300px;">
                         <canvas id="googleAdsTimelineChart"></canvas>
                     </div>
                 </div>
 
-                <!-- Campaigns & Keywords -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                    <div class="analytics-section">
-                        <h3>Campagnes</h3>
-                        <div class="analytics-table-container">
-                            <table id="googleAdsCampaignsTable" class="analytics-table">
-                                <thead>
-                                    <tr>
-                                        <th>Campagne</th>
-                                        <th>Impressions</th>
-                                        <th>Clics</th>
-                                        <th>CTR</th>
-                                        <th>Coût</th>
-                                        <th>CPC</th>
-                                        <th>Conv.</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
+                <!-- Conversions by Type Section -->
+                <div class="analytics-section">
+                    <h3>Conversions par type</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start;">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="googleAdsConversionsChart"></canvas>
                         </div>
-                    </div>
-
-                    <div class="analytics-section">
-                        <h3>Mots-clés</h3>
-                        <div class="analytics-table-container">
-                            <table id="googleAdsKeywordsTable" class="analytics-table">
+                        <div>
+                            <table class="analytics-table" id="googleAdsConversionsTable">
                                 <thead>
                                     <tr>
-                                        <th>Mot-clé</th>
-                                        <th>Impressions</th>
-                                        <th>Clics</th>
-                                        <th>CTR</th>
-                                        <th>Coût</th>
-                                        <th>CPC</th>
+                                        <th>Type de conversion</th>
+                                        <th class="number">Total</th>
                                     </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -621,11 +727,45 @@ class AnalyticsManager {
                     </div>
                 </div>
 
-                <!-- Conversions -->
+                <!-- Campaigns Table -->
                 <div class="analytics-section">
-                    <h3>Conversions par type</h3>
-                    <div class="chart-container" style="height: 300px;">
-                        <canvas id="googleAdsConversionsChart"></canvas>
+                    <h3>Performance par campagne</h3>
+                    <div class="analytics-table-container">
+                        <table id="googleAdsCampaignsTable" class="analytics-table">
+                            <thead>
+                                <tr>
+                                    <th>Campagne</th>
+                                    <th>Impressions</th>
+                                    <th>Clics</th>
+                                    <th>Coût</th>
+                                    <th>CTR</th>
+                                    <th>CPC</th>
+                                    <th>Leads</th>
+                                    <th>Conversions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Keywords Table -->
+                <div class="analytics-section">
+                    <h3>Mots-clés</h3>
+                    <div class="analytics-table-container">
+                        <table id="googleAdsKeywordsTable" class="analytics-table">
+                            <thead>
+                                <tr>
+                                    <th>Mot-clé</th>
+                                    <th>Impressions</th>
+                                    <th>Clics</th>
+                                    <th>CTR</th>
+                                    <th>Coût</th>
+                                    <th>CPC</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -645,26 +785,29 @@ class AnalyticsManager {
         if (!ctx) return;
 
         this.charts.googleAdsTimeline = new Chart(ctx.getContext('2d'), {
-            type: 'line',
+            type: 'bar',
             data: {
                 labels: timeline.map(d => new Date(d.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })),
                 datasets: [
                     {
-                        label: 'Clics',
-                        data: timeline.map(d => d.clicks),
-                        borderColor: '#0B6CD9',
-                        backgroundColor: 'rgba(11, 108, 217, 0.1)',
+                        type: 'line',
+                        label: 'Dépense (€)',
+                        data: timeline.map(d => d.cost),
+                        borderColor: '#D5691B',
+                        backgroundColor: 'rgba(213, 105, 27, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
                         tension: 0.4,
-                        fill: true
+                        yAxisID: 'y1'
                     },
                     {
-                        label: 'Coût (€)',
-                        data: timeline.map(d => d.cost),
-                        borderColor: '#DC2626',
-                        backgroundColor: 'rgba(220, 38, 38, 0.1)',
-                        tension: 0.4,
-                        fill: true,
-                        yAxisID: 'y1'
+                        type: 'bar',
+                        label: 'Conversions',
+                        data: timeline.map(d => d.conversions || 0),
+                        backgroundColor: '#0B6CD9',
+                        borderColor: '#0B6CD9',
+                        borderWidth: 1,
+                        yAxisID: 'y'
                     }
                 ]
             },
@@ -675,23 +818,115 @@ class AnalyticsManager {
                     mode: 'index',
                     intersect: false
                 },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        titleFont: {
+                            family: 'Inter',
+                            size: 13,
+                            weight: '700'
+                        },
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += context.parsed.y.toLocaleString('fr-FR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    }) + '€';
+                                } else {
+                                    label += context.parsed.y.toLocaleString('fr-FR');
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
                 scales: {
                     y: {
                         type: 'linear',
                         display: true,
                         position: 'left',
-                        title: { display: true, text: 'Clics' }
+                        title: {
+                            display: true,
+                            text: 'Conversions',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
                     },
                     y1: {
                         type: 'linear',
                         display: true,
                         position: 'right',
-                        title: { display: true, text: 'Coût (€)' },
-                        grid: { drawOnChartArea: false }
+                        title: {
+                            display: true,
+                            text: 'Dépense (€)',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            },
+                            callback: function(value) {
+                                return value.toLocaleString('fr-FR', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0
+                                }) + '€';
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
                     }
-                },
-                plugins: {
-                    legend: { position: 'top' }
                 }
             }
         });
@@ -702,15 +937,20 @@ class AnalyticsManager {
         if (!tbody) return;
 
         campaigns.slice(0, 20).forEach(campaign => {
+            // Calculate leads and conversions for this campaign
+            const conversions_by_type = campaign.conversions_by_type || [];
+            const { totalLeads, totalConversions } = this.calculateLeadsAndConversions(conversions_by_type);
+
             const row = document.createElement('tr');
             row.innerHTML = `
                 <td>${campaign.campaign_name || 'N/A'}</td>
                 <td class="number">${this.formatNumber(campaign.impressions || 0)}</td>
                 <td class="number">${this.formatNumber(campaign.clicks || 0)}</td>
-                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
                 <td class="number">${this.formatCurrency(campaign.cost || 0)}</td>
+                <td class="number">${(campaign.ctr || 0).toFixed(2)}%</td>
                 <td class="number">${this.formatCurrency(campaign.cpc || 0)}</td>
-                <td class="number">${this.formatNumber(campaign.conversions || 0)}</td>
+                <td class="number" style="color: #11845B; font-weight: 600;">${this.formatNumber(totalLeads)}</td>
+                <td class="number" style="color: #0B6CD9; font-weight: 600;">${this.formatNumber(totalConversions)}</td>
             `;
             tbody.appendChild(row);
         });
@@ -742,13 +982,20 @@ class AnalyticsManager {
         const ctx = document.getElementById('googleAdsConversionsChart');
         if (!ctx) return;
 
+        // Color conversions based on whether they are leads or not
+        const colors = conversions.map(c =>
+            this.isLead(c.type) ? '#11845B' : '#0B6CD9'
+        );
+
         this.charts.googleAdsConversions = new Chart(ctx.getContext('2d'), {
             type: 'doughnut',
             data: {
                 labels: conversions.map(c => c.type),
                 datasets: [{
                     data: conversions.map(c => c.count),
-                    backgroundColor: ['#0B6CD9', '#11845B', '#D5691B', '#8b5cf6', '#DC2626']
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: '#fff'
                 }]
             },
             options: {
@@ -759,11 +1006,71 @@ class AnalyticsManager {
                         position: 'right',
                         labels: {
                             padding: 15,
-                            font: { family: 'Inter', size: 12 }
+                            font: {
+                                family: 'Inter',
+                                size: 12
+                            },
+                            generateLabels: (chart) => {
+                                const data = chart.data;
+                                return data.labels.map((label, i) => ({
+                                    text: label,
+                                    fillStyle: data.datasets[0].backgroundColor[i],
+                                    hidden: false,
+                                    index: i
+                                }));
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        titleFont: {
+                            family: 'Inter',
+                            size: 13,
+                            weight: '700'
+                        },
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
                         }
                     }
                 }
             }
+        });
+
+        // Populate Google Ads conversions table
+        this.populateGoogleAdsConversionsTable(conversions);
+    }
+
+    populateGoogleAdsConversionsTable(conversions) {
+        const tbody = document.querySelector('#googleAdsConversionsTable tbody');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+
+        conversions.forEach(conv => {
+            const isLead = this.isLead(conv.type);
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="color: ${isLead ? '#11845B' : '#0B6CD9'}; font-weight: 600;">
+                    ${conv.type}
+                    ${isLead ? '<span style="font-size: 0.85em; margin-left: 8px; padding: 2px 6px; background: #d4f4dd; border-radius: 4px;">Lead</span>' : ''}
+                </td>
+                <td class="number" style="color: ${isLead ? '#11845B' : '#0B6CD9'}; font-weight: 600;">
+                    ${this.formatNumber(conv.count || 0)}
+                </td>
+            `;
+            tbody.appendChild(row);
         });
     }
 
@@ -776,6 +1083,10 @@ class AnalyticsManager {
 
     renderGA4Report(data) {
         const container = document.getElementById('analyticsReportContainer');
+        if (!container) {
+            console.error('[Analytics] Report container not found');
+            return;
+        }
 
         // Destroy existing charts
         Object.values(this.charts).forEach(chart => {
@@ -785,8 +1096,7 @@ class AnalyticsManager {
         });
         this.charts = {};
 
-        const reportContent = document.getElementById('analyticsReportContent');
-        reportContent.innerHTML = `
+        container.innerHTML = `
             <div class="analytics-report">
                 <!-- Summary Cards -->
                 <div class="analytics-summary">
@@ -1043,9 +1353,11 @@ class AnalyticsManager {
         });
 
         // Add domains filter if specific accounts are selected
+        // Fixed: If selectedAccounts is empty array or null/undefined, use all domains
         if (this.selectedAccounts && this.selectedAccounts.length > 0) {
             params.append('domains', this.selectedAccounts.join(','));
         }
+        // If selectedAccounts is null or empty, API will use all available domains
 
         const response = await fetch(`${window.CONFIG.API_URL}/api/analytics/search-console?${params}`);
 
@@ -1062,6 +1374,10 @@ class AnalyticsManager {
             const data = await this.fetchSearchConsoleData(clientId, dateFrom, dateTo);
 
             const reportSection = document.getElementById('analyticsReportContainer');
+            if (!reportSection) {
+                console.error('[Analytics] Report container not found');
+                return;
+            }
             reportSection.innerHTML = `
                 <div class="report-header">
                     <h2>📊 Search Console - ${clientName}</h2>
@@ -1166,12 +1482,15 @@ class AnalyticsManager {
 
         } catch (error) {
             console.error('Search Console error:', error);
-            document.getElementById('analyticsReportContainer').innerHTML = `
-                <div class="error-message">
-                    <h3>⚠️ Error Loading Search Console Data</h3>
-                    <p>${error.message}</p>
-                </div>
-            `;
+            const container = document.getElementById('analyticsReportContainer');
+            if (container) {
+                container.innerHTML = `
+                    <div class="error-message">
+                        <h3>⚠️ Error Loading Search Console Data</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
         }
     }
 
@@ -1393,82 +1712,95 @@ class AnalyticsManager {
         }).format(num);
     }
 
-    async showAccountSelection(clientId, source, accounts) {
-        return new Promise((resolve) => {
-            const modal = document.createElement('div');
-            modal.className = 'account-selection-modal';
-            modal.innerHTML = `
-                <div class="account-selection-content">
-                    <h3>Sélectionner les comptes à afficher</h3>
-                    <p class="account-selection-subtitle">
-                        Ce client possède plusieurs comptes ${source === 'search-console' ? 'Search Console' : 'publicitaires'}.
-                        Sélectionnez ceux que vous souhaitez inclure dans le rapport.
-                    </p>
-                    <div class="account-checkbox-list">
-                        <label class="account-checkbox-item">
-                            <input type="checkbox" class="account-checkbox-all" checked>
-                            <span class="account-checkbox-label">
-                                <strong>Tous les comptes</strong>
-                                <span class="account-checkbox-count">(${accounts.length} comptes)</span>
-                            </span>
-                        </label>
-                        <div class="account-checkbox-separator"></div>
-                        ${accounts.map(account => `
-                            <label class="account-checkbox-item">
-                                <input type="checkbox" class="account-checkbox-individual" value="${account}" checked>
-                                <span class="account-checkbox-label">${account}</span>
-                            </label>
-                        `).join('')}
-                    </div>
-                    <div class="account-selection-buttons">
-                        <button class="btn-secondary" id="cancelAccountSelection">Annuler</button>
-                        <button class="btn-primary" id="confirmAccountSelection">Valider</button>
-                    </div>
-                </div>
-            `;
+    showAccountSelectionPanel(accounts) {
+        const panel = document.getElementById('analyticsAccountSelection');
+        const checkboxContainer = document.getElementById('analyticsAccountCheckboxes');
 
-            document.body.appendChild(modal);
+        if (!panel || !checkboxContainer) {
+            console.error('[Analytics] Account selection panel elements not found');
+            return;
+        }
 
-            // Handle "All accounts" checkbox
-            const allCheckbox = modal.querySelector('.account-checkbox-all');
-            const individualCheckboxes = modal.querySelectorAll('.account-checkbox-individual');
+        // Initialize selectedAccounts to all accounts by default
+        this.selectedAccounts = [];
 
-            allCheckbox.addEventListener('change', (e) => {
-                individualCheckboxes.forEach(cb => {
-                    cb.checked = e.target.checked;
-                });
-            });
+        // Build checkboxes
+        checkboxContainer.innerHTML = `
+            <label class="account-checkbox-item">
+                <input type="checkbox" class="account-checkbox-all" checked>
+                <span class="account-checkbox-label">
+                    <strong>Tous les domaines</strong>
+                    <span class="account-checkbox-count">(${accounts.length} domaines)</span>
+                </span>
+            </label>
+            <div class="account-checkbox-separator"></div>
+            ${accounts.map(account => `
+                <label class="account-checkbox-item">
+                    <input type="checkbox" class="account-checkbox-individual" value="${account}" checked>
+                    <span class="account-checkbox-label">${account}</span>
+                </label>
+            `).join('')}
+        `;
 
+        // Handle "All accounts" checkbox
+        const allCheckbox = checkboxContainer.querySelector('.account-checkbox-all');
+        const individualCheckboxes = checkboxContainer.querySelectorAll('.account-checkbox-individual');
+
+        allCheckbox.addEventListener('change', (e) => {
             individualCheckboxes.forEach(cb => {
-                cb.addEventListener('change', () => {
-                    const allChecked = Array.from(individualCheckboxes).every(cb => cb.checked);
-                    allCheckbox.checked = allChecked;
-                });
+                cb.checked = e.target.checked;
             });
+            this.updateSelectedAccounts();
+        });
 
-            // Handle cancel
-            modal.querySelector('#cancelAccountSelection').addEventListener('click', () => {
-                modal.remove();
-                resolve(null);
-            });
-
-            // Handle confirm
-            modal.querySelector('#confirmAccountSelection').addEventListener('click', () => {
-                const selected = Array.from(individualCheckboxes)
-                    .filter(cb => cb.checked)
-                    .map(cb => cb.value);
-                modal.remove();
-                resolve(selected.length === accounts.length ? [] : selected);
-            });
-
-            // Close on backdrop click
-            modal.addEventListener('click', (e) => {
-                if (e.target === modal) {
-                    modal.remove();
-                    resolve(null);
-                }
+        individualCheckboxes.forEach(cb => {
+            cb.addEventListener('change', () => {
+                const allChecked = Array.from(individualCheckboxes).every(cb => cb.checked);
+                allCheckbox.checked = allChecked;
+                this.updateSelectedAccounts();
             });
         });
+
+        // Show the panel
+        panel.style.display = 'block';
+    }
+
+    hideAccountSelectionPanel() {
+        const panel = document.getElementById('analyticsAccountSelection');
+        if (panel) {
+            panel.style.display = 'none';
+        }
+    }
+
+    updateSelectedAccounts() {
+        const checkboxContainer = document.getElementById('analyticsAccountCheckboxes');
+        if (!checkboxContainer) return;
+
+        const individualCheckboxes = checkboxContainer.querySelectorAll('.account-checkbox-individual');
+        const allCheckbox = checkboxContainer.querySelector('.account-checkbox-all');
+
+        const selected = Array.from(individualCheckboxes)
+            .filter(cb => cb.checked)
+            .map(cb => cb.value);
+
+        // If all are selected, use empty array to indicate "all domains"
+        // If specific ones selected, use the array of selected domains
+        this.selectedAccounts = allCheckbox?.checked ? [] : selected;
+
+        // Auto-reload the report with new selection
+        console.log('[Analytics] Selected accounts updated:', this.selectedAccounts);
+
+        // Re-render the report with updated selection
+        if (this.currentClient && this.currentSource === 'search-console') {
+            const scClientSelect = document.getElementById('analyticsClient');
+            if (scClientSelect) {
+                const scSelectedOption = scClientSelect.options[scClientSelect.selectedIndex];
+                const scClientName = scSelectedOption.textContent;
+                const scClientId = scSelectedOption.value;
+
+                this.renderSearchConsoleReport(scClientId, scClientName, this.currentDateFrom, this.currentDateTo);
+            }
+        }
     }
 }
 
