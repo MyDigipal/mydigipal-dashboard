@@ -1929,7 +1929,25 @@ def get_search_console_data():
 
         domains_list_str = ", ".join([f"'{d}'" for d in domains_to_query])
         domains_filter_sql = f"AND domain_name IN ({domains_list_str})"
-        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", mapping_row.company_name)] + date_params
+
+        # Map client_id to Search Console client_group (from Excel "Data Pipeline Orchestrator" > "Client" column)
+        SEARCH_CONSOLE_CLIENT_GROUP_MAP = {
+            'guyane_automobile': 'Guyane Auto',
+            'evolution2': 'Evolution 2',
+            'vulcain': 'Vulcain',
+            'groupe_theobald': 'Théobald',
+            'mydigipal': 'MyDigipal',
+            'groupe_dmd': 'DMD',
+            'partenair': 'Partenair',
+            'com2market': 'Com2market',
+            'groupe_lancien': 'Groupe Lancien',
+            'woodcote_and_copse': 'W&C',
+            'hbw': 'HBW',
+            'tjdp': 'TJDP'
+        }
+
+        client_group = SEARCH_CONSOLE_CLIENT_GROUP_MAP.get(client_id, mapping_row.company_name)
+        query_params = [bigquery.ScalarQueryParameter("client_group", "STRING", client_group)] + date_params
         job_config = bigquery.QueryJobConfig(query_parameters=query_params)
 
         # Timeline
