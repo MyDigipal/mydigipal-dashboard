@@ -1356,22 +1356,24 @@ def get_linkedin_ads_analytics():
         timeline_result = client.query(timeline_query, job_config=job_config_summary).result()
         timeline = [dict(row) for row in timeline_result]
 
-        # Get campaigns performance
+        # Get campaigns performance with JOIN to get campaign names from Campaigns table
         campaigns_query = """
         SELECT
-            COALESCE(campaign_name, 'Sans nom de campagne') as campaign_name,
-            SUM(impressions) as impressions,
-            SUM(clicks) as clicks,
-            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
-            SUM(costInLocalCurrency) as cost,
-            SAFE_DIVIDE(SUM(costInLocalCurrency), SUM(clicks)) as cpc,
-            SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as leads,
-            SUM(COALESCE(externalWebsiteConversions, 0)) as conversions,
-            SUM(landingPageClicks) as landing_page_clicks,
-            SUM(totalEngagements) as total_engagements
-        FROM `mydigipal.linkedin_ads_v2.AdMetrics`
-        WHERE account_name IN UNNEST(@accounts)
-          AND date_start BETWEEN @date_from AND @date_to
+            COALESCE(c.campaign_name, m.campaign_name, 'Sans nom de campagne') as campaign_name,
+            SUM(m.impressions) as impressions,
+            SUM(m.clicks) as clicks,
+            SAFE_DIVIDE(SUM(m.clicks), SUM(m.impressions)) * 100 as ctr,
+            SUM(m.costInLocalCurrency) as cost,
+            SAFE_DIVIDE(SUM(m.costInLocalCurrency), SUM(m.clicks)) as cpc,
+            SUM(COALESCE(m.oneClickLeads, 0) + COALESCE(m.oneClickLeadFormOpens, 0)) as leads,
+            SUM(COALESCE(m.externalWebsiteConversions, 0)) as conversions,
+            SUM(m.landingPageClicks) as landing_page_clicks,
+            SUM(m.totalEngagements) as total_engagements
+        FROM `mydigipal.linkedin_ads_v2.AdMetrics` m
+        LEFT JOIN `mydigipal.linkedin_ads_v2.Campaigns` c
+          ON m.pivot_id = c.campaign_id AND m.account_name = c.account_name
+        WHERE m.account_name IN UNNEST(@accounts)
+          AND m.date_start BETWEEN @date_from AND @date_to
         GROUP BY campaign_name
         ORDER BY cost DESC
         LIMIT 50
