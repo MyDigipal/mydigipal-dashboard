@@ -186,7 +186,8 @@ class AnalyticsManager {
                     break;
                 case 'multi':
                     this.hideAccountSelectionPanel();
-                    container.innerHTML = '<div class="coming-soon">📊 Multi-Source - Bientôt disponible</div>';
+                    data = await this.fetchPaidMediaData(clientId, dateFrom, dateTo);
+                    this.renderPaidMediaReport(data);
                     break;
             }
         } catch (error) {
@@ -1456,6 +1457,366 @@ class AnalyticsManager {
         });
 
         this.makeSortable('#linkedInAdsCampaignsTable');
+    }
+
+    async fetchPaidMediaData(clientId, dateFrom, dateTo) {
+        const url = `${CONFIG.API_URL}/api/analytics/paid-media?client_id=${clientId}&date_from=${dateFrom}&date_to=${dateTo}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch Paid Media data');
+        return await response.json();
+    }
+
+    renderPaidMediaReport(data) {
+        const container = document.getElementById('analyticsReportContainer');
+        if (!container) return;
+
+        const { summary, timeline, platform_breakdown, platforms_available } = data;
+
+        // Determine which platforms are available
+        const availablePlatforms = [];
+        if (platforms_available.meta) availablePlatforms.push('Meta Ads');
+        if (platforms_available.google) availablePlatforms.push('Google Ads');
+        if (platforms_available.linkedin) availablePlatforms.push('LinkedIn Ads');
+
+        container.innerHTML = `
+            <div class="analytics-report">
+                <h2 class="report-title">📊 Paid Media - Vue Globale</h2>
+                <p class="report-accounts">Plateformes: ${availablePlatforms.join(' + ')}</p>
+
+                <!-- KPIs Summary -->
+                <div class="kpi-grid">
+                    <div class="kpi-card">
+                        <div class="kpi-icon">💰</div>
+                        <div class="kpi-value">${this.formatCurrency(summary.total_spend || 0)}</div>
+                        <div class="kpi-label">Total Dépense</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">👁️</div>
+                        <div class="kpi-value">${this.formatNumber(summary.total_impressions || 0)}</div>
+                        <div class="kpi-label">Total Impressions</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">👆</div>
+                        <div class="kpi-value">${this.formatNumber(summary.total_clicks || 0)}</div>
+                        <div class="kpi-label">Total Clics</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">🎯</div>
+                        <div class="kpi-value">${this.formatNumber(summary.total_leads || 0)}</div>
+                        <div class="kpi-label">Total Leads</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">✅</div>
+                        <div class="kpi-value">${this.formatNumber(summary.total_conversions || 0)}</div>
+                        <div class="kpi-label">Total Conversions</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">📊</div>
+                        <div class="kpi-value">${(summary.avg_ctr || 0).toFixed(2)}%</div>
+                        <div class="kpi-label">CTR moyen</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">💵</div>
+                        <div class="kpi-value">${this.formatCurrency(summary.avg_cpc || 0)}</div>
+                        <div class="kpi-label">CPC moyen</div>
+                    </div>
+                </div>
+
+                <!-- Timeline Chart -->
+                <div class="chart-section">
+                    <h3>📈 Évolution dans le temps</h3>
+                    <div class="chart-container" style="height: 400px;">
+                        <canvas id="paidMediaTimelineChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Platform Breakdown -->
+                <div class="chart-section">
+                    <h3>📊 Performance par Plateforme</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 2rem;">
+                        <div class="chart-container" style="height: 300px;">
+                            <canvas id="paidMediaPlatformChart"></canvas>
+                        </div>
+                        <div>
+                            <table class="data-table" id="paidMediaPlatformTable">
+                                <thead>
+                                    <tr>
+                                        <th>Plateforme</th>
+                                        <th class="number">Impressions</th>
+                                        <th class="number">Clics</th>
+                                        <th class="number">Dépense</th>
+                                        <th class="number">CTR</th>
+                                        <th class="number">Leads</th>
+                                        <th class="number">Conversions</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Populate charts and tables
+        this.renderPaidMediaTimelineChart(timeline);
+        this.renderPaidMediaPlatformChart(platform_breakdown);
+        this.populatePaidMediaPlatformTable(platform_breakdown);
+    }
+
+    renderPaidMediaTimelineChart(timeline) {
+        const ctx = document.getElementById('paidMediaTimelineChart');
+        if (!ctx) return;
+
+        this.charts.paidMediaTimeline = new Chart(ctx.getContext('2d'), {
+            data: {
+                labels: timeline.map(d => {
+                    const date = new Date(d.date);
+                    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+                }),
+                datasets: [
+                    {
+                        type: 'line',
+                        label: 'Dépense (€)',
+                        data: timeline.map(d => d.spend || 0),
+                        borderColor: '#211F54',
+                        backgroundColor: 'rgba(33, 31, 84, 0.1)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Leads',
+                        data: timeline.map(d => d.leads || 0),
+                        backgroundColor: '#11845B',
+                        borderColor: '#11845B',
+                        borderWidth: 1,
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Conversions',
+                        data: timeline.map(d => d.conversions || 0),
+                        backgroundColor: '#0B6CD9',
+                        borderColor: '#0B6CD9',
+                        borderWidth: 1,
+                        yAxisID: 'y'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 15,
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        titleFont: {
+                            family: 'Inter',
+                            size: 13,
+                            weight: '700'
+                        },
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        padding: 12,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.dataset.yAxisID === 'y1') {
+                                    label += context.parsed.y.toLocaleString('fr-FR', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    }) + '€';
+                                } else {
+                                    label += context.parsed.y.toLocaleString('fr-FR');
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: 'Leads & Conversions',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            color: 'rgba(0, 0, 0, 0.05)'
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'Dépense (€)',
+                            font: {
+                                family: 'Inter',
+                                size: 12,
+                                weight: '600'
+                            }
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            },
+                            callback: function(value) {
+                                return value.toLocaleString('fr-FR', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 0
+                                }) + '€';
+                            }
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: {
+                                family: 'Inter',
+                                size: 11
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    renderPaidMediaPlatformChart(platforms) {
+        const ctx = document.getElementById('paidMediaPlatformChart');
+        if (!ctx) return;
+
+        // Platform colors
+        const platformColors = {
+            'Meta Ads': '#1877F2',
+            'Google Ads': '#4285F4',
+            'LinkedIn Ads': '#0077B5'
+        };
+
+        const colors = platforms.map(p => platformColors[p.platform] || '#211F54');
+
+        this.charts.paidMediaPlatform = new Chart(ctx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: platforms.map(p => p.platform),
+                datasets: [{
+                    label: 'Dépense',
+                    data: platforms.map(p => p.spend),
+                    backgroundColor: colors,
+                    borderWidth: 2,
+                    borderColor: '#fff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 15,
+                            font: {
+                                family: 'Inter',
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                        padding: 12,
+                        cornerRadius: 8,
+                        bodyFont: {
+                            family: 'Inter',
+                            size: 12
+                        },
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = ((value / total) * 100).toFixed(1);
+                                return `${label}: ${value.toLocaleString('fr-FR', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                })}€ (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    populatePaidMediaPlatformTable(platforms) {
+        const tbody = document.querySelector('#paidMediaPlatformTable tbody');
+        if (!tbody) return;
+
+        const platformEmojis = {
+            'Meta Ads': '📘',
+            'Google Ads': '🔴',
+            'LinkedIn Ads': '💼'
+        };
+
+        platforms.forEach(platform => {
+            const row = document.createElement('tr');
+            const emoji = platformEmojis[platform.platform] || '📊';
+            row.innerHTML = `
+                <td>${emoji} ${platform.platform}</td>
+                <td class="number">${this.formatNumber(platform.impressions || 0)}</td>
+                <td class="number">${this.formatNumber(platform.clicks || 0)}</td>
+                <td class="number">${this.formatCurrency(platform.spend || 0)}</td>
+                <td class="number">${(platform.ctr || 0).toFixed(2)}%</td>
+                <td class="number" style="color: #11845B; font-weight: 600;">${this.formatNumber(platform.leads || 0)}</td>
+                <td class="number" style="color: #0B6CD9; font-weight: 600;">${this.formatNumber(platform.conversions || 0)}</td>
+            `;
+            tbody.appendChild(row);
+        });
+
+        this.makeSortable('#paidMediaPlatformTable');
     }
 
     async fetchGA4Data(property, dateFrom, dateTo) {
