@@ -769,6 +769,7 @@ class AnalyticsManager {
                                     <th>CTR</th>
                                     <th>Coût</th>
                                     <th>CPC</th>
+                                    <th>Conversions</th>
                                 </tr>
                             </thead>
                             <tbody></tbody>
@@ -978,6 +979,7 @@ class AnalyticsManager {
                 <td class="number">${(keyword.ctr || 0).toFixed(2)}%</td>
                 <td class="number">${this.formatCurrency(keyword.cost || 0)}</td>
                 <td class="number">${this.formatCurrency(keyword.cpc || 0)}</td>
+                <td class="number" style="color: #0B6CD9; font-weight: 600;">${this.formatNumber(keyword.conversions || 0)}</td>
             `;
             tbody.appendChild(row);
         });

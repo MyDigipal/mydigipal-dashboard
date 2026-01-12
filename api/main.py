@@ -1143,7 +1143,8 @@ def get_google_ads_analytics():
             PARSE_DATE('%Y-%m-%d', date) as date,
             SUM(impressions) as impressions,
             SUM(clicks) as clicks,
-            SUM(cost) as cost
+            SUM(cost) as cost,
+            SUM(conversions) as conversions
         FROM `mydigipal.googleAds_v2.campaignPerformance`
         WHERE account IN UNNEST(@accounts)
           AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
@@ -1175,6 +1176,34 @@ def get_google_ads_analytics():
 
         campaigns_result = client.query(campaigns_query, job_config=job_config).result()
         campaigns = [dict(row) for row in campaigns_result]
+
+        # Get conversions by type per campaign
+        campaigns_conversions_query = """
+        SELECT
+            campaign_name,
+            conversion_type as type,
+            CAST(SUM(conversions) AS INT64) as count
+        FROM `mydigipal.googleAds_v2.campaignPerformanceWithConversionType`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+          AND conversions > 0
+        GROUP BY campaign_name, conversion_type
+        ORDER BY campaign_name, count DESC
+        """
+
+        campaigns_conversions_result = client.query(campaigns_conversions_query, job_config=job_config).result()
+
+        # Build a mapping of campaign_name -> conversions_by_type array
+        campaigns_conv_map = {}
+        for row in campaigns_conversions_result:
+            campaign_name = row['campaign_name']
+            if campaign_name not in campaigns_conv_map:
+                campaigns_conv_map[campaign_name] = []
+            campaigns_conv_map[campaign_name].append({'type': row['type'], 'count': row['count']})
+
+        # Enrich campaigns with conversions_by_type
+        for campaign in campaigns:
+            campaign['conversions_by_type'] = campaigns_conv_map.get(campaign['campaign_name'], [])
 
         # Get keywords data
         keywords_query = """
