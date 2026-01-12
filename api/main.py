@@ -1356,25 +1356,24 @@ def get_linkedin_ads_analytics():
         timeline_result = client.query(timeline_query, job_config=job_config_summary).result()
         timeline = [dict(row) for row in timeline_result]
 
-        # Get campaigns performance with JOIN to get campaign names from Campaigns table
+        # Get campaigns performance (campaign_name is now enriched directly in AdMetrics)
         campaigns_query = """
         SELECT
-            COALESCE(c.campaign_name, m.campaign_name, 'Sans nom de campagne') as campaign_name,
-            SUM(m.impressions) as impressions,
-            SUM(m.clicks) as clicks,
-            SAFE_DIVIDE(SUM(m.clicks), SUM(m.impressions)) * 100 as ctr,
-            SUM(m.costInLocalCurrency) as cost,
-            SAFE_DIVIDE(SUM(m.costInLocalCurrency), SUM(m.clicks)) as cpc,
-            SUM(COALESCE(m.oneClickLeads, 0) + COALESCE(m.oneClickLeadFormOpens, 0)) as leads,
-            SUM(COALESCE(m.externalWebsiteConversions, 0)) as conversions,
-            SUM(m.landingPageClicks) as landing_page_clicks,
-            SUM(m.totalEngagements) as total_engagements
-        FROM `mydigipal.linkedin_ads_v2.AdMetrics` m
-        LEFT JOIN `mydigipal.linkedin_ads_v2.Campaigns` c
-          ON m.pivot_id = c.campaign_id AND m.account_name = c.account_name
-        WHERE m.account_name IN UNNEST(@accounts)
-          AND m.date_start BETWEEN @date_from AND @date_to
-        GROUP BY campaign_name
+            COALESCE(campaign_name, 'Sans nom de campagne') as campaign_name,
+            campaign_id,
+            SUM(COALESCE(impressions, 0)) as impressions,
+            SUM(COALESCE(clicks, 0)) as clicks,
+            SAFE_DIVIDE(SUM(COALESCE(clicks, 0)), SUM(COALESCE(impressions, 0))) * 100 as ctr,
+            SUM(COALESCE(costInLocalCurrency, 0)) as cost,
+            SAFE_DIVIDE(SUM(COALESCE(costInLocalCurrency, 0)), SUM(COALESCE(clicks, 0))) as cpc,
+            SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as leads,
+            SUM(COALESCE(externalWebsiteConversions, 0)) as conversions,
+            SUM(COALESCE(landingPageClicks, 0)) as landing_page_clicks,
+            SUM(COALESCE(totalEngagements, 0)) as total_engagements
+        FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+        GROUP BY campaign_name, campaign_id
         ORDER BY cost DESC
         LIMIT 50
         """
