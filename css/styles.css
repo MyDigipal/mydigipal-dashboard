@@ -1356,8 +1356,8 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
     display: flex;
     flex-direction: column;
     height: calc(100vh - 220px);
-    max-width: 1200px;
-    margin: 0 auto;
+    width: 100%;
+    margin: 0;
 }
 
 .ai-reports-header {
@@ -1636,4 +1636,36 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
 
 .ai-modal-close:hover {
     background: #e2e8f0;
+}
+
+.ai-download-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.ai-download-btn {
+    width: 100%;
+    padding: 12px 20px;
+    background: linear-gradient(135deg, #0B6CD9, #0ea5e9);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.ai-download-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(11, 108, 217, 0.3);
+}
+
+.ai-download-btn:active {
+    transform: translateY(0);
 }

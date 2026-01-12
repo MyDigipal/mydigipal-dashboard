@@ -70,7 +70,7 @@ class AIReportsManager {
             const data = await response.json();
 
             // Afficher réponse assistant
-            this.addMessageToChat('assistant', data.response, data.sql_executed);
+            this.addMessageToChat('assistant', data.response, data.sql_executed, data.conversation_id);
 
             // Mettre à jour l'historique
             this.conversationHistory.push(
@@ -91,7 +91,7 @@ class AIReportsManager {
         }
     }
 
-    addMessageToChat(role, content, sqlQuery = null) {
+    addMessageToChat(role, content, sqlQuery = null, conversationId = null) {
         const chatContainer = document.getElementById('aiChatMessages');
         const messageDiv = document.createElement('div');
         messageDiv.className = `ai-message ai-message-${role}`;
@@ -103,6 +103,7 @@ class AIReportsManager {
         } else if (role === 'assistant') {
             const formattedContent = this.renderMarkdown(content);
             let sqlSection = '';
+            let downloadSection = '';
 
             if (sqlQuery) {
                 sqlSection = `
@@ -113,9 +114,20 @@ class AIReportsManager {
                 `;
             }
 
+            if (conversationId) {
+                downloadSection = `
+                    <div class="ai-download-section">
+                        <button class="ai-download-btn" onclick="aiReportsManager.downloadHTML('${conversationId}', \`${this.escapeHtml(content)}\`)">
+                            📥 Télécharger le rapport HTML
+                        </button>
+                    </div>
+                `;
+            }
+
             messageDiv.innerHTML = `
                 <div class="ai-message-content">${formattedContent}</div>
                 ${sqlSection}
+                ${downloadSection}
             `;
         } else if (role === 'error') {
             messageDiv.innerHTML = `
@@ -157,12 +169,28 @@ class AIReportsManager {
         }
     }
 
-    async downloadHTML(conversationId) {
+    async downloadHTML(conversationId, reportContent) {
         try {
+            // Extract client name and period from report content
+            const clientMatch = reportContent.match(/(?:pour|de|du client)\s+([A-Za-zÀ-ÿ\s&]+?)(?:\s+en|\s+sur|\s+du|\s+à|$)/i);
+            const periodMatch = reportContent.match(/(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\s+(\d{4})/i);
+
+            const clientName = clientMatch ? clientMatch[1].trim() : 'Client';
+            const period = periodMatch ? `${periodMatch[1]} ${periodMatch[2]}` : new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+            // Convert client name to ID (lowercase, no spaces)
+            const clientId = clientName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+
             const response = await fetch(`${window.CONFIG.API_URL}/api/ai-reports/export-html`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversation_id: conversationId })
+                body: JSON.stringify({
+                    conversation_id: conversationId,
+                    client_name: clientName,
+                    client_id: clientId,
+                    period: period,
+                    report_content: reportContent
+                })
             });
 
             if (!response.ok) throw new Error('Export failed');
@@ -178,7 +206,7 @@ class AIReportsManager {
             a.click();
             URL.revokeObjectURL(url);
 
-            this.addMessageToChat('assistant', '✅ Rapport téléchargé avec succès!');
+            console.log('[AI Reports] Rapport téléchargé:', data.filename);
         } catch (error) {
             console.error('[AI Reports] Download error:', error);
             this.addMessageToChat('error', 'Erreur lors du téléchargement du rapport');

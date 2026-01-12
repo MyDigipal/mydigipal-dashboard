@@ -1805,16 +1805,214 @@ def export_html():
     try:
         data = request.json
         conversation_id = data.get('conversation_id')
+        client_name = data.get('client_name', 'Client')
+        client_id = data.get('client_id', 'client')
+        report_content = data.get('report_content', '')
+        period = data.get('period', datetime.now().strftime('%B %Y'))
 
         if not conversation_id:
             return jsonify({'error': 'conversation_id is required'}), 400
 
-        # TODO: Récupérer données conversation et générer HTML
-        # Pour l'instant, retourner un placeholder
+        # Logo URLs
+        mydigipal_logo = 'https://raw.githubusercontent.com/MyDigipal/website/main/images/logo-mydigipal.png'
+        client_logo = f'https://raw.githubusercontent.com/MyDigipal/website/main/images/logos-clients/{client_id}.png'
+
+        # Template HTML
+        html_template = f"""<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{client_name} - Rapport Marketing {period}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {{
+            --primary: #211F54;
+            --accent-blue: #0B6CD9;
+            --accent-green: #11845B;
+            --accent-orange: #D5691B;
+            --bg-light: #EFF0F6;
+            --text-dark: #1a1a2e;
+            --text-muted: #6b7280;
+            --white: #ffffff;
+            --card-shadow: 0 4px 24px rgba(33, 31, 84, 0.08);
+            --gradient-hero: linear-gradient(135deg, #211F54 0%, #0B6CD9 50%, #11845B 100%);
+            --gradient-meta: linear-gradient(135deg, #1877F2 0%, #42B72A 100%);
+            --gradient-google: linear-gradient(135deg, #F4B400 0%, #EA4335 100%);
+        }}
+
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+        body {{
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-light);
+            color: var(--text-dark);
+            line-height: 1.6;
+        }}
+
+        .header {{
+            background: white;
+            padding: 2rem;
+            box-shadow: var(--card-shadow);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+
+        .header-logos {{ display: flex; gap: 2rem; align-items: center; }}
+        .header-logos img {{ height: 60px; object-fit: contain; }}
+
+        .hero {{
+            background: var(--gradient-hero);
+            padding: 4rem 2rem;
+            color: white;
+            text-align: center;
+        }}
+
+        .hero h1 {{
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }}
+
+        .hero .subtitle {{
+            font-size: 1.3rem;
+            opacity: 0.9;
+        }}
+
+        .container {{
+            max-width: 1400px;
+            margin: 2rem auto;
+            padding: 0 2rem;
+        }}
+
+        .report-card {{
+            background: white;
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--card-shadow);
+        }}
+
+        .section-title {{
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }}
+
+        .section-title::before {{
+            content: '';
+            width: 4px;
+            height: 2rem;
+            background: var(--accent-blue);
+            border-radius: 4px;
+        }}
+
+        .summary-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }}
+
+        .summary-item {{
+            text-align: center;
+            padding: 1.5rem;
+            background: var(--bg-light);
+            border-radius: 12px;
+        }}
+
+        .summary-item .label {{
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }}
+
+        .summary-item .value {{
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+        }}
+
+        th, td {{
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }}
+
+        th {{
+            background: var(--bg-light);
+            font-weight: 600;
+            color: var(--primary);
+        }}
+
+        tr:hover {{ background: #f8fafc; }}
+
+        .footer {{
+            background: var(--primary);
+            color: white;
+            padding: 2rem;
+            text-align: center;
+            margin-top: 4rem;
+        }}
+
+        .footer-logo {{
+            font-weight: 700;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-logos">
+            <img src="{mydigipal_logo}" alt="MyDigipal" onerror="this.style.display='none'">
+            <img src="{client_logo}" alt="{client_name}" onerror="this.style.display='none'">
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 0.85rem; color: var(--text-muted);">Généré le</div>
+            <div style="font-weight: 600;">{datetime.now().strftime('%d %B %Y')}</div>
+        </div>
+    </div>
+
+    <div class="hero">
+        <h1>{client_name}</h1>
+        <div class="subtitle">Rapport Marketing - {period}</div>
+    </div>
+
+    <div class="container">
+        <div class="report-card">
+            <div class="content">
+                {report_content}
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <div class="footer-logo">MyDigipal</div>
+        <p style="opacity: 0.8; font-size: 0.9rem;">Rapport généré automatiquement par AI Reports</p>
+    </div>
+</body>
+</html>"""
+
+        filename = f'rapport_{client_id}_{period.replace(" ", "_")}.html'
 
         return jsonify({
-            'html': '<html><body><h1>Rapport AI</h1></body></html>',
-            'filename': f'rapport_{conversation_id}.html'
+            'html': html_template,
+            'filename': filename
         })
 
     except Exception as e:
