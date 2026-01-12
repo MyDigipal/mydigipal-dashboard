@@ -1232,6 +1232,184 @@ def get_google_ads_analytics():
         return jsonify({"error": f"Failed to fetch Google Ads data: {str(e)}"}), 500
 
 
+@app.route('/api/analytics/linkedin-ads')
+@cache.cached(timeout=300, query_string=True)
+def get_linkedin_ads_analytics():
+    """Get LinkedIn Ads analytics for a client"""
+    try:
+        client_id = request.args.get('client_id')
+        date_from = request.args.get('date_from')
+        date_to = request.args.get('date_to')
+
+        if not client_id or not date_from or not date_to:
+            return jsonify({'error': 'Missing required parameters: client_id, date_from, date_to'}), 400
+
+        # Get client mapping
+        mapping_query = """
+        SELECT linkedin_ads_accounts
+        FROM `mydigipal.company.client_accounts_mapping`
+        WHERE client_id = @client_id
+        """
+
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("client_id", "STRING", client_id)
+            ]
+        )
+
+        mapping_result = client.query(mapping_query, job_config=job_config).result()
+        mapping_row = next(mapping_result, None)
+
+        if not mapping_row or not mapping_row.linkedin_ads_accounts:
+            return jsonify({'error': 'No LinkedIn Ads accounts found for this client'}), 404
+
+        accounts = [acc.strip() for acc in mapping_row.linkedin_ads_accounts.split('|')]
+
+        # Calculate period length for comparison
+        from datetime import datetime as dt
+        date_from_dt = dt.strptime(date_from, '%Y-%m-%d')
+        date_to_dt = dt.strptime(date_to, '%Y-%m-%d')
+        period_days = (date_to_dt - date_from_dt).days + 1
+
+        # Get summary data with comparison to previous period
+        summary_query = """
+        WITH current_period AS (
+            SELECT
+                SUM(impressions) as total_impressions,
+                SUM(clicks) as total_clicks,
+                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
+                SUM(costInLocalCurrency) as total_spend,
+                SAFE_DIVIDE(SUM(costInLocalCurrency), SUM(clicks)) as avg_cpc,
+                SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as total_leads,
+                SUM(COALESCE(externalWebsiteConversions, 0)) as total_conversions
+            FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+            WHERE account_name IN UNNEST(@accounts)
+              AND date_start BETWEEN @date_from AND @date_to
+        ),
+        previous_period AS (
+            SELECT
+                SUM(impressions) as total_impressions,
+                SUM(clicks) as total_clicks,
+                SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as avg_ctr,
+                SUM(costInLocalCurrency) as total_spend,
+                SAFE_DIVIDE(SUM(costInLocalCurrency), SUM(clicks)) as avg_cpc,
+                SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as total_leads,
+                SUM(COALESCE(externalWebsiteConversions, 0)) as total_conversions
+            FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+            WHERE account_name IN UNNEST(@accounts)
+              AND date_start BETWEEN DATE_SUB(CAST(@date_from AS DATE), INTERVAL @period_days DAY)
+                                  AND DATE_SUB(CAST(@date_from AS DATE), INTERVAL 1 DAY)
+        )
+        SELECT
+            COALESCE(c.total_impressions, 0) as total_impressions,
+            COALESCE(c.total_clicks, 0) as total_clicks,
+            COALESCE(c.avg_ctr, 0) as avg_ctr,
+            COALESCE(c.total_spend, 0) as total_spend,
+            COALESCE(c.avg_cpc, 0) as avg_cpc,
+            COALESCE(c.total_leads, 0) as total_leads,
+            COALESCE(c.total_conversions, 0) as total_conversions,
+            ROUND(SAFE_DIVIDE((c.total_impressions - p.total_impressions), NULLIF(p.total_impressions, 0)) * 100, 1) as impressions_change,
+            ROUND(SAFE_DIVIDE((c.total_clicks - p.total_clicks), NULLIF(p.total_clicks, 0)) * 100, 1) as clicks_change,
+            ROUND(SAFE_DIVIDE((c.avg_ctr - p.avg_ctr), NULLIF(p.avg_ctr, 0)) * 100, 1) as ctr_change,
+            ROUND(SAFE_DIVIDE((c.total_spend - p.total_spend), NULLIF(p.total_spend, 0)) * 100, 1) as spend_change,
+            ROUND(SAFE_DIVIDE((c.avg_cpc - p.avg_cpc), NULLIF(p.avg_cpc, 0)) * 100, 1) as cpc_change,
+            ROUND(SAFE_DIVIDE((c.total_leads - p.total_leads), NULLIF(p.total_leads, 0)) * 100, 1) as leads_change,
+            ROUND(SAFE_DIVIDE((c.total_conversions - p.total_conversions), NULLIF(p.total_conversions, 0)) * 100, 1) as conversions_change
+        FROM current_period c, previous_period p
+        """
+
+        job_config_summary = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("accounts", "STRING", accounts),
+                bigquery.ScalarQueryParameter("date_from", "DATE", date_from),
+                bigquery.ScalarQueryParameter("date_to", "DATE", date_to),
+                bigquery.ScalarQueryParameter("period_days", "INT64", period_days)
+            ]
+        )
+
+        summary_result = client.query(summary_query, job_config=job_config_summary).result()
+        summary = dict(next(summary_result))
+
+        # Get timeline data
+        timeline_query = """
+        SELECT
+            date_start as date,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SUM(costInLocalCurrency) as spend,
+            SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as leads,
+            SUM(COALESCE(externalWebsiteConversions, 0)) as conversions
+        FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+        GROUP BY date_start
+        ORDER BY date_start
+        """
+
+        timeline_result = client.query(timeline_query, job_config=job_config_summary).result()
+        timeline = [dict(row) for row in timeline_result]
+
+        # Get campaigns performance
+        campaigns_query = """
+        SELECT
+            campaign_name,
+            SUM(impressions) as impressions,
+            SUM(clicks) as clicks,
+            SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
+            SUM(costInLocalCurrency) as cost,
+            SAFE_DIVIDE(SUM(costInLocalCurrency), SUM(clicks)) as cpc,
+            SUM(COALESCE(oneClickLeads, 0) + COALESCE(oneClickLeadFormOpens, 0)) as leads,
+            SUM(COALESCE(externalWebsiteConversions, 0)) as conversions,
+            SUM(landingPageClicks) as landing_page_clicks,
+            SUM(totalEngagements) as total_engagements
+        FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+        WHERE account_name IN UNNEST(@accounts)
+          AND date_start BETWEEN @date_from AND @date_to
+          AND campaign_name IS NOT NULL
+        GROUP BY campaign_name
+        ORDER BY cost DESC
+        LIMIT 50
+        """
+
+        campaigns_result = client.query(campaigns_query, job_config=job_config_summary).result()
+        campaigns = [dict(row) for row in campaigns_result]
+
+        # LinkedIn has built-in lead tracking, so we just categorize the metrics
+        # Leads: oneClickLeads + oneClickLeadFormOpens
+        # Conversions: externalWebsiteConversions
+        conversion_types = []
+
+        if summary.get('total_leads', 0) > 0:
+            conversion_types.append({
+                'type': 'LinkedIn Lead Forms',
+                'count': int(summary['total_leads']),
+                'is_lead': True
+            })
+
+        if summary.get('total_conversions', 0) > 0:
+            conversion_types.append({
+                'type': 'External Website Conversions',
+                'count': int(summary['total_conversions']),
+                'is_lead': False
+            })
+
+        if not conversion_types:
+            conversion_types = [{'type': 'No conversions tracked', 'count': 0, 'is_lead': False}]
+
+        return jsonify({
+            'summary': summary,
+            'timeline': timeline,
+            'campaigns': campaigns,
+            'conversions_by_type': conversion_types,
+            'accounts': accounts
+        })
+
+    except Exception as e:
+        print(f"Error fetching LinkedIn Ads analytics: {str(e)}")
+        traceback.print_exc()
+        return jsonify({"error": f"Failed to fetch LinkedIn Ads data: {str(e)}"}), 500
+
+
 @app.route('/api/analytics/ga4')
 @cache.cached(timeout=300, query_string=True)
 def get_ga4_analytics():
