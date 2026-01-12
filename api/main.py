@@ -1605,13 +1605,59 @@ Mots-clés les plus performants...
 - [Insight 2]
 ```
 
-RÈGLES SQL:
+RÈGLES SQL CRITIQUES:
 - Toujours utiliser noms complets: `mydigipal.meta_ads_v2.adsMetrics`
-- Meta Ads: CAST(impressions AS INT64), CAST(spend AS FLOAT64)
-- Google Ads: PARSE_DATE('%Y-%m-%d', date)
+- **Meta Ads: OBLIGATOIRE** → CAST(impressions AS INT64), CAST(clicks AS INT64), CAST(spend AS FLOAT64)
+- Google Ads: PARSE_DATE('%Y-%m-%d', date) pour filtrer par date
 - Search Console: filtrer par client_group = 'Company Name' du client
 - Utiliser SAFE_DIVIDE pour éviter division par zéro
 - Formater les nombres: ROUND(..., 2) pour 2 décimales
+
+EXEMPLES SQL CORRECTS:
+
+**Meta Ads - Performances par campagne:**
+```sql
+SELECT
+    campaign_name,
+    SUM(CAST(impressions AS INT64)) as total_impressions,
+    SUM(CAST(clicks AS INT64)) as total_clicks,
+    SUM(CAST(spend AS FLOAT64)) as total_spend,
+    ROUND(SAFE_DIVIDE(SUM(CAST(clicks AS INT64)), SUM(CAST(impressions AS INT64))) * 100, 2) as ctr
+FROM `mydigipal.meta_ads_v2.adsMetrics`
+WHERE account_name IN ('Felix Faure Automobiles', 'Lyon Elite Motors')
+  AND date_start BETWEEN '2025-12-01' AND '2025-12-31'
+GROUP BY campaign_name
+ORDER BY total_spend DESC
+LIMIT 10
+```
+
+**Google Ads - Summary:**
+```sql
+SELECT
+    SUM(impressions) as total_impressions,
+    SUM(clicks) as total_clicks,
+    SUM(cost) as total_cost,
+    SUM(conversions) as total_conversions
+FROM `mydigipal.googleAds_v2.campaignPerformance`
+WHERE account IN ('Vulcain - Felix Faure', 'Vulcain - LEM')
+  AND PARSE_DATE('%Y-%m-%d', date) BETWEEN '2025-12-01' AND '2025-12-31'
+```
+
+**Search Console - Top queries:**
+```sql
+SELECT
+    query,
+    SUM(clicks) as total_clicks,
+    SUM(impressions) as total_impressions,
+    ROUND(AVG(position), 1) as avg_position
+FROM `mydigipal.search_console_v2.gsc_date_query`
+WHERE client_group = 'Vulcain'
+  AND domain_name = 'www.groupevulcain.fr'
+  AND date BETWEEN '2025-12-01' AND '2025-12-31'
+GROUP BY query
+ORDER BY total_clicks DESC
+LIMIT 20
+```
 
 EXEMPLES DE QUESTIONS ATTENDUES:
 - "Crée un rapport pour Vulcain en décembre 2025"
