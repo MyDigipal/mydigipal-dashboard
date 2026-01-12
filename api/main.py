@@ -1352,7 +1352,7 @@ def get_linkedin_ads_analytics():
         # Get campaigns performance
         campaigns_query = """
         SELECT
-            campaign_name,
+            COALESCE(campaign_name, 'Sans nom de campagne') as campaign_name,
             SUM(impressions) as impressions,
             SUM(clicks) as clicks,
             SAFE_DIVIDE(SUM(clicks), SUM(impressions)) * 100 as ctr,
@@ -1365,7 +1365,6 @@ def get_linkedin_ads_analytics():
         FROM `mydigipal.linkedin_ads_v2.AdMetrics`
         WHERE account_name IN UNNEST(@accounts)
           AND date_start BETWEEN @date_from AND @date_to
-          AND campaign_name IS NOT NULL
         GROUP BY campaign_name
         ORDER BY cost DESC
         LIMIT 50
