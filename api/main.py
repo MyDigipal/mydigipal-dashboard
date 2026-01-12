@@ -1374,6 +1374,23 @@ def get_linkedin_ads_analytics():
         campaigns_result = client.query(campaigns_query, job_config=job_config_summary).result()
         campaigns = [dict(row) for row in campaigns_result]
 
+        print(f"[LinkedIn Ads] Client {client_id}: Found {len(campaigns)} campaigns")
+        if len(campaigns) == 0:
+            # Debug: check if campaign_name is NULL
+            debug_query = """
+            SELECT
+                COUNT(*) as total_rows,
+                COUNT(campaign_name) as rows_with_campaign,
+                COUNT(DISTINCT campaign_name) as unique_campaigns
+            FROM `mydigipal.linkedin_ads_v2.AdMetrics`
+            WHERE account_name IN UNNEST(@accounts)
+              AND date_start BETWEEN @date_from AND @date_to
+            """
+            debug_result = client.query(debug_query, job_config=job_config_summary).result()
+            debug_data = dict(next(debug_result))
+            print(f"[LinkedIn Ads] Debug: {debug_data}")
+
+
         # LinkedIn has built-in lead tracking, so we just categorize the metrics
         # Leads: oneClickLeads + oneClickLeadFormOpens
         # Conversions: externalWebsiteConversions
