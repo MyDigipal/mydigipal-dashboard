@@ -810,11 +810,22 @@ class AnalyticsManager {
                     },
                     {
                         type: 'bar',
+                        label: 'Leads',
+                        data: timeline.map(d => d.leads || 0),
+                        backgroundColor: '#11845B',
+                        borderColor: '#11845B',
+                        borderWidth: 1,
+                        stack: 'conversions',
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar',
                         label: 'Conversions',
                         data: timeline.map(d => d.conversions || 0),
                         backgroundColor: '#0B6CD9',
                         borderColor: '#0B6CD9',
                         borderWidth: 1,
+                        stack: 'conversions',
                         yAxisID: 'y'
                     }
                 ]

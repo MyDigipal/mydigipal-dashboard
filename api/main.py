@@ -1155,6 +1155,49 @@ def get_google_ads_analytics():
         timeline_result = client.query(timeline_query, job_config=job_config).result()
         timeline = [dict(row) for row in timeline_result]
 
+        # Get leads and conversions breakdown by date for timeline
+        timeline_conv_query = """
+        SELECT
+            PARSE_DATE('%Y-%m-%d', date) as date,
+            conversion_type,
+            CAST(SUM(conversions) AS INT64) as count
+        FROM `mydigipal.googleAds_v2.campaignPerformanceWithConversionType`
+        WHERE account IN UNNEST(@accounts)
+          AND PARSE_DATE('%Y-%m-%d', date) BETWEEN @date_from AND @date_to
+          AND conversions > 0
+        GROUP BY date, conversion_type
+        ORDER BY date
+        """
+
+        timeline_conv_result = client.query(timeline_conv_query, job_config=job_config).result()
+
+        # Build mapping of date -> {leads, conversions}
+        timeline_conv_map = {}
+        for row in timeline_conv_result:
+            date_str = str(row['date'])
+            if date_str not in timeline_conv_map:
+                timeline_conv_map[date_str] = {'leads': 0, 'conversions': 0}
+
+            conv_type = row['conversion_type'].lower() if row['conversion_type'] else ''
+            is_lead = 'lead' in conv_type or 'formulaire' in conv_type or 'form' in conv_type
+
+            if is_lead:
+                timeline_conv_map[date_str]['leads'] += row['count']
+            else:
+                timeline_conv_map[date_str]['conversions'] += row['count']
+
+        # Enrich timeline with leads and conversions breakdown
+        for day in timeline:
+            date_str = str(day['date'])
+            if date_str in timeline_conv_map:
+                day['leads'] = timeline_conv_map[date_str]['leads']
+                day['conversions'] = timeline_conv_map[date_str]['conversions']
+            else:
+                day['leads'] = 0
+                # Keep original conversions value if no breakdown available
+                if 'conversions' not in day:
+                    day['conversions'] = 0
+
         # Get campaigns data
         campaigns_query = """
         SELECT
@@ -1203,7 +1246,16 @@ def get_google_ads_analytics():
 
         # Enrich campaigns with conversions_by_type
         for campaign in campaigns:
-            campaign['conversions_by_type'] = campaigns_conv_map.get(campaign['campaign_name'], [])
+            conv_types = campaigns_conv_map.get(campaign['campaign_name'], [])
+
+            # Fallback: if no conversion types but conversions > 0, use generic label
+            if not conv_types and campaign.get('conversions', 0) > 0:
+                conv_types = [{
+                    'type': 'Conversions (type non spécifié)',
+                    'count': int(campaign['conversions'])
+                }]
+
+            campaign['conversions_by_type'] = conv_types
 
         # Get keywords data
         keywords_query = """
