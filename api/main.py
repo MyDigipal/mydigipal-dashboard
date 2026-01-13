@@ -2145,7 +2145,7 @@ def get_search_console_data():
             'tjdp': 'TJDP'
         }
 
-        client_group = SEARCH_CONSOLE_CLIENT_GROUP_MAP.get(client_id, mapping_row.company_name)
+        client_group = SEARCH_CONSOLE_CLIENT_GROUP_MAP.get(client_id, client_data.get('company_name', client_id))
 
         # Check if client_group is available in BigQuery data
         # Some domains have empty client_group, so we filter by domain only
@@ -2234,7 +2234,7 @@ def get_search_console_data():
             'countries': countries,
             'domains': domains_to_query,
             'available_domains': available_domains,
-            'client_name': mapping_row.company_name
+            'client_name': client_data.get('company_name', client_id)
         })
     except Exception as e:
         print(f"Error fetching Search Console data: {str(e)}")
