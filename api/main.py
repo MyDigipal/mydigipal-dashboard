@@ -30,7 +30,7 @@ client = bigquery.Client(project='mydigipal')
 
 # Google Sheets configuration (central account registry)
 SPREADSHEET_ID = '1BFcwuLQ2LbiJK0wpz6oaf44xNcsP5ilWxBwNU04n0Y4'
-SHEET_NAME = 'accounts'
+SHEET_NAME = 'Data Pipeline Orchestrator'
 
 def normalize_client_id(client_group):
     """Convert client_group to client_id format (snake_case)."""
@@ -58,8 +58,8 @@ def get_client_accounts_from_sheet():
         credentials, _ = default()
         sheets_service = build('sheets', 'v4', credentials=credentials)
 
-        # Read sheet
-        range_name = f'{SHEET_NAME}!A:G'  # Columns: canal, account_name, account_id, client_group, active, notes, category
+        # Read sheet - Structure: A=#, B=Canal, C=Client, D=Nom du compte, E=ID, F=Devise, G=Actif, H=Notes
+        range_name = f"'{SHEET_NAME}'!A:H"
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
             range=range_name
@@ -70,14 +70,20 @@ def get_client_accounts_from_sheet():
             print("[Sheets] No data found in sheet")
             return {}
 
-        # Parse header
-        header = rows[0]
+        # Parse rows with fixed column mapping (French headers)
         accounts = []
         for row in rows[1:]:  # Skip header
-            if len(row) < len(header):
-                row.extend([''] * (len(header) - len(row)))  # Pad short rows
+            # Pad row to 8 columns
+            row_padded = row + [''] * (8 - len(row))
 
-            account = dict(zip(header, row))
+            # Map columns: A=#, B=Canal, C=Client, D=Nom, E=ID, F=Devise, G=Actif, H=Notes
+            account = {
+                'canal': row_padded[1].strip().lower() if row_padded[1] else '',
+                'client_group': row_padded[2].strip() if row_padded[2] else '',
+                'account_name': row_padded[3].strip() if row_padded[3] else '',
+                'account_id': str(row_padded[4]).strip() if row_padded[4] else '',
+                'active': str(row_padded[6]).strip().upper() if row_padded[6] else '',
+            }
             accounts.append(account)
 
         # Group by client_group and canal
@@ -91,17 +97,26 @@ def get_client_accounts_from_sheet():
         })
 
         for acc in accounts:
-            active = acc.get('active', '').strip().upper()
-            if active != 'TRUE':
-                continue  # Skip inactive accounts
+            # Include ALL accounts (active and inactive) for historical data access
+            # The pipeline only imports active accounts, but dashboard should show historical data
 
             client_group = acc.get('client_group', '').strip()
             if not client_group:
                 continue
 
-            canal = acc.get('canal', '').strip().lower()
+            canal_raw = acc.get('canal', '').strip().lower()
             account_name = acc.get('account_name', '').strip()
             account_id = acc.get('account_id', '').strip()
+
+            # Map canal names from sheet format to internal format
+            canal_mapping = {
+                'linkedin ads': 'linkedin',
+                'meta ads': 'meta',
+                'google ads': 'google',
+                'ga4': 'ga4',
+                'search console': 'gsc',
+            }
+            canal = canal_mapping.get(canal_raw, canal_raw)
 
             client_id = normalize_client_id(client_group)
             if not client_id:
