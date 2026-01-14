@@ -79,6 +79,85 @@ class AnalyticsManager {
                 this.loadReport();
             });
         }
+
+        // Listen for client selection changes to update available sources
+        const clientSelect = document.getElementById('analyticsClient');
+        if (clientSelect) {
+            clientSelect.addEventListener('change', (e) => {
+                this.updateAvailableSources(e.target);
+            });
+        }
+    }
+
+    updateAvailableSources(clientSelect) {
+        const sourceSelect = document.getElementById('analyticsSource');
+        if (!sourceSelect) return;
+
+        const selectedOption = clientSelect.options[clientSelect.selectedIndex];
+
+        // If no client selected, show all sources
+        if (!selectedOption || !selectedOption.value) {
+            Array.from(sourceSelect.options).forEach(opt => {
+                opt.style.display = '';
+                opt.disabled = false;
+            });
+            return;
+        }
+
+        // Get client data
+        let clientData = {};
+        try {
+            clientData = JSON.parse(selectedOption.dataset.clientData || '{}');
+        } catch (e) {
+            console.error('[Analytics] Error parsing client data:', e);
+            return;
+        }
+
+        // Map source values to client data fields
+        const sourceMapping = {
+            'meta': 'meta_ads_accounts',
+            'google-ads': 'google_ads_accounts',
+            'linkedin-ads': 'linkedin_ads_accounts',
+            'ga4': 'ga4_properties',
+            'search-console': 'gsc_domains',
+            'multi': null // Multi-source requires at least one paid media source
+        };
+
+        let hasAnyPaidMedia = false;
+
+        Array.from(sourceSelect.options).forEach(opt => {
+            const sourceValue = opt.value;
+            const dataField = sourceMapping[sourceValue];
+
+            if (sourceValue === 'multi') {
+                // Multi-source is available if client has at least one paid media account
+                hasAnyPaidMedia = !!(clientData.meta_ads_accounts || clientData.google_ads_accounts || clientData.linkedin_ads_accounts);
+                opt.style.display = hasAnyPaidMedia ? '' : 'none';
+                opt.disabled = !hasAnyPaidMedia;
+            } else if (dataField) {
+                const hasAccounts = !!clientData[dataField];
+                opt.style.display = hasAccounts ? '' : 'none';
+                opt.disabled = !hasAccounts;
+
+                if (dataField.includes('ads')) {
+                    hasAnyPaidMedia = hasAnyPaidMedia || hasAccounts;
+                }
+            }
+        });
+
+        // If current selection is now hidden, reset to first available option
+        const currentOption = sourceSelect.options[sourceSelect.selectedIndex];
+        if (currentOption && (currentOption.style.display === 'none' || currentOption.disabled)) {
+            // Find first available option
+            for (let opt of sourceSelect.options) {
+                if (opt.style.display !== 'none' && !opt.disabled && opt.value) {
+                    sourceSelect.value = opt.value;
+                    break;
+                }
+            }
+        }
+
+        console.log(`[Analytics] Updated sources for client ${clientData.client_name || selectedOption.value}`);
     }
 
     setDefaultDates() {
