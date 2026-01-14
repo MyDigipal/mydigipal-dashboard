@@ -1505,8 +1505,46 @@ tr.total-row td:last-child { border-radius: 0 8px 8px 0; }
     margin-top: 0.25rem;
 }
 
-.scorecard.bg-colored .scorecard-secondary {
+.scorecard.bg-colored .scorecard-secondary,
+.scorecard.bg-blue .scorecard-secondary,
+.scorecard.bg-green .scorecard-secondary,
+.scorecard.bg-orange .scorecard-secondary,
+.scorecard.bg-purple .scorecard-secondary,
+.scorecard.bg-red .scorecard-secondary,
+.scorecard.bg-teal .scorecard-secondary,
+.scorecard[style*="gradient"] .scorecard-secondary {
     color: rgba(255,255,255,0.85);
+}
+
+.scorecard.bg-blue .scorecard-label,
+.scorecard.bg-green .scorecard-label,
+.scorecard.bg-orange .scorecard-label,
+.scorecard.bg-purple .scorecard-label,
+.scorecard.bg-red .scorecard-label,
+.scorecard.bg-teal .scorecard-label,
+.scorecard[style*="gradient"] .scorecard-label {
+    color: rgba(255,255,255,0.8);
+}
+
+.scorecard.bg-blue .scorecard-value,
+.scorecard.bg-green .scorecard-value,
+.scorecard.bg-orange .scorecard-value,
+.scorecard.bg-purple .scorecard-value,
+.scorecard.bg-red .scorecard-value,
+.scorecard.bg-teal .scorecard-value,
+.scorecard[style*="gradient"] .scorecard-value {
+    color: white;
+}
+
+.scorecard.bg-blue .scorecard-icon,
+.scorecard.bg-green .scorecard-icon,
+.scorecard.bg-orange .scorecard-icon,
+.scorecard.bg-purple .scorecard-icon,
+.scorecard.bg-red .scorecard-icon,
+.scorecard.bg-teal .scorecard-icon,
+.scorecard[style*="gradient"] .scorecard-icon {
+    background: rgba(255,255,255,0.2);
+    color: white;
 }
 
 .scorecard-value {
