@@ -1961,7 +1961,13 @@ def get_paid_media_analytics():
 @app.route('/api/analytics/ga4')
 @cache.cached(timeout=300, query_string=True)
 def get_ga4_analytics():
-    """Get Google Analytics 4 data for a specific property"""
+    """
+    Get Google Analytics 4 data using NEW 5-table structure (Jan 2025):
+    - traffic_daily: Trafic journalier par canal
+    - events: Événements avec catégorisation (LEAD/CONVERSION/ENGAGEMENT)
+    - pages: Pages vues et landing pages
+    - audience: Démographie (pays, device)
+    """
     try:
         property_name = request.args.get('property')
         date_from = request.args.get('date_from', '2024-01-01')
@@ -1981,99 +1987,149 @@ def get_ga4_analytics():
             bigquery.ScalarQueryParameter("date_to", "STRING", date_to_formatted)
         ])
 
-        # Get timeline data (aggregate duplicates)
+        # 1. Timeline data from traffic_daily (aggregate by date)
         timeline_query = """
         SELECT
             date,
-            SUM(CAST(sessions AS INT64)) as sessions,
-            SUM(CAST(totalUsers AS INT64)) as users,
-            SUM(CAST(screenPageViews AS INT64)) as pageviews,
-            SUM(CAST(conversions AS INT64)) as conversions,
-            AVG(bounceRate) as bounce_rate,
-            AVG(engagementRate) as engagement_rate
-        FROM `mydigipal.googleAnalytics_v2.date`
+            SUM(sessions) as sessions,
+            SUM(totalUsers) as users,
+            SUM(newUsers) as new_users,
+            SUM(screenPageViews) as pageviews,
+            SUM(engagedSessions) as engaged_sessions,
+            SUM(bounces) as bounces,
+            AVG(averageSessionDuration) as avg_session_duration
+        FROM `mydigipal.googleAnalytics_v2.traffic_daily`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
         GROUP BY date
         ORDER BY date
         """
-
         timeline_result = client.query(timeline_query, job_config=job_config).result()
         timeline = [dict(row) for row in timeline_result]
 
-        # Calculate summary
+        # Calculate summary metrics
+        total_sessions = sum(row['sessions'] or 0 for row in timeline)
+        total_users = sum(row['users'] or 0 for row in timeline)
+        total_pageviews = sum(row['pageviews'] or 0 for row in timeline)
+        total_engaged = sum(row['engaged_sessions'] or 0 for row in timeline)
+        total_bounces = sum(row['bounces'] or 0 for row in timeline)
+        avg_duration = sum(row['avg_session_duration'] or 0 for row in timeline) / len(timeline) if timeline else 0
+
+        engagement_rate = (total_engaged / total_sessions * 100) if total_sessions > 0 else 0
+        bounce_rate = (total_bounces / total_sessions * 100) if total_sessions > 0 else 0
+
         summary = {
-            'sessions': sum(row['sessions'] for row in timeline),
-            'users': sum(row['users'] for row in timeline),
-            'pageviews': sum(row['pageviews'] for row in timeline),
-            'conversions': sum(row['conversions'] for row in timeline),
-            'bounce_rate': sum(row['bounce_rate'] or 0 for row in timeline) / len(timeline) if timeline else 0,
-            'engagement_rate': sum(row['engagement_rate'] or 0 for row in timeline) / len(timeline) if timeline else 0
+            'sessions': total_sessions,
+            'users': total_users,
+            'new_users': sum(row['new_users'] or 0 for row in timeline),
+            'pageviews': total_pageviews,
+            'engaged_sessions': total_engaged,
+            'engagement_rate': round(engagement_rate, 1),
+            'bounce_rate': round(bounce_rate, 1),
+            'avg_session_duration': round(avg_duration, 0),
+            'pages_per_session': round(total_pageviews / total_sessions, 2) if total_sessions > 0 else 0
         }
 
-        # Get channel breakdown
+        # 2. Traffic sources (channels) from traffic_daily
         channels_query = """
         SELECT
-            firstUserDefaultChannelGroup as channel,
-            SUM(CAST(sessions AS INT64)) as sessions,
-            SUM(CAST(totalUsers AS INT64)) as users,
-            SUM(CAST(screenPageViews AS INT64)) as pageviews,
-            SUM(CAST(conversions AS INT64)) as conversions
-        FROM `mydigipal.googleAnalytics_v2.sessionChannel`
+            sessionDefaultChannelGroup as channel,
+            SUM(sessions) as sessions,
+            SUM(totalUsers) as users,
+            SUM(engagedSessions) as engaged_sessions,
+            AVG(averageSessionDuration) as avg_duration
+        FROM `mydigipal.googleAnalytics_v2.traffic_daily`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
-        GROUP BY firstUserDefaultChannelGroup
+        GROUP BY sessionDefaultChannelGroup
         ORDER BY sessions DESC
-        LIMIT 10
         """
-
         channels_result = client.query(channels_query, job_config=job_config).result()
         channels = [dict(row) for row in channels_result]
 
-        # Get top landing pages
-        landing_pages_query = """
+        # 3. Events with categories (LEAD/CONVERSION/ENGAGEMENT)
+        events_query = """
         SELECT
-            landingPage as page,
-            SUM(CAST(sessions AS INT64)) as sessions,
-            SUM(CAST(totalUsers AS INT64)) as users,
-            AVG(bounceRate) as bounce_rate,
-            AVG(engagementRate) as engagement_rate
-        FROM `mydigipal.googleAnalytics_v2.landingPage`
+            eventName,
+            event_category,
+            SUM(eventCount) as count,
+            SUM(eventValue) as value
+        FROM `mydigipal.googleAnalytics_v2.events`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
-          AND landingPage IS NOT NULL
-        GROUP BY landingPage
-        ORDER BY sessions DESC
+        GROUP BY eventName, event_category
+        ORDER BY count DESC
+        """
+        events_result = client.query(events_query, job_config=job_config).result()
+        events = [dict(row) for row in events_result]
+
+        # Calculate leads and conversions totals
+        leads_total = sum(e['count'] or 0 for e in events if e.get('event_category') == 'LEAD')
+        conversions_total = sum(e['count'] or 0 for e in events if e.get('event_category') == 'CONVERSION')
+        engagement_total = sum(e['count'] or 0 for e in events if e.get('event_category') == 'ENGAGEMENT')
+
+        summary['leads'] = leads_total
+        summary['conversions'] = conversions_total
+        summary['engagement_events'] = engagement_total
+
+        # 4. Top pages from pages table
+        pages_query = """
+        SELECT
+            pagePath as path,
+            pageTitle as title,
+            SUM(screenPageViews) as views,
+            SUM(sessions) as sessions,
+            AVG(averageSessionDuration) as avg_duration
+        FROM `mydigipal.googleAnalytics_v2.pages`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+        GROUP BY pagePath, pageTitle
+        ORDER BY views DESC
         LIMIT 20
         """
+        pages_result = client.query(pages_query, job_config=job_config).result()
+        pages = [dict(row) for row in pages_result]
 
-        landing_pages_result = client.query(landing_pages_query, job_config=job_config).result()
-        landing_pages = [dict(row) for row in landing_pages_result]
-
-        # Get demographics (device category, country)
-        demographics_query = """
+        # 5. Audience - Device breakdown
+        devices_query = """
         SELECT
             deviceCategory as device,
-            country,
-            SUM(CAST(sessions AS INT64)) as sessions,
-            SUM(CAST(totalUsers AS INT64)) as users
-        FROM `mydigipal.googleAnalytics_v2.demographics`
+            SUM(totalUsers) as users,
+            SUM(sessions) as sessions
+        FROM `mydigipal.googleAnalytics_v2.audience`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
-        GROUP BY deviceCategory, country
-        ORDER BY sessions DESC
-        LIMIT 20
+        GROUP BY deviceCategory
+        ORDER BY users DESC
         """
+        devices_result = client.query(devices_query, job_config=job_config).result()
+        devices = [dict(row) for row in devices_result]
 
-        demographics_result = client.query(demographics_query, job_config=job_config).result()
-        demographics = [dict(row) for row in demographics_result]
+        # 6. Audience - Country breakdown
+        countries_query = """
+        SELECT
+            country,
+            SUM(totalUsers) as users,
+            SUM(sessions) as sessions
+        FROM `mydigipal.googleAnalytics_v2.audience`
+        WHERE property_name = @property_name
+          AND date BETWEEN @date_from AND @date_to
+          AND country IS NOT NULL
+        GROUP BY country
+        ORDER BY users DESC
+        LIMIT 10
+        """
+        countries_result = client.query(countries_query, job_config=job_config).result()
+        countries = [dict(row) for row in countries_result]
 
         return jsonify({
             'summary': summary,
             'timeline': timeline,
             'channels': channels,
-            'landing_pages': landing_pages,
-            'demographics': demographics,
+            'events': events,
+            'pages': pages,
+            'devices': devices,
+            'countries': countries,
             'property_name': property_name
         })
 

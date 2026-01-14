@@ -1,0 +1,54 @@
+event_name,category,total_events,properties_count,notes
+page_view,,299919,21,Standard GA4 - ne pas categoriser
+user_engagement,,195053,21,Standard GA4 - ne pas categoriser
+session_start,,127388,21,Standard GA4 - ne pas categoriser
+first_visit,,76894,21,Standard GA4 - ne pas categoriser
+scroll,,24378,13,Engagement standard
+tchat_ouvert,LEAD,16817,9,Chat ouvert - lead potentiel
+tchat_fermé,,9853,9,Chat ferme - pas un lead
+form_start,,8041,5,Debut formulaire - pas encore soumis
+page_type,,5651,1,Navigation
+click,,2089,10,Click generique
+chat_closed,,2150,1,Chat ferme
+form_submit,LEAD,1815,3,Soumission formulaire = Lead
+list_page,,1678,1,Navigation produit
+view_item,,1520,1,Vue produit
+contact,LEAD,1424,5,Contact = Lead
+video_progress,,1134,3,Engagement video
+video_start,,481,3,Engagement video
+lead,LEAD,402,5,Lead explicite
+search_results,,289,1,Recherche
+tchat_message,LEAD,293,7,Message chat = Lead
+text_search,,274,1,Recherche
+chat_initiated,LEAD,269,1,Chat initie = Lead potentiel
+tchat_voiture,LEAD,223,5,Chat vehicule = Lead auto
+filter_added,,197,1,Navigation filtre
+contact_click,LEAD,177,1,Clic contact = Lead
+chat_start,LEAD,172,1,Chat demarre = Lead
+chat_open,LEAD,170,1,Chat ouvert = Lead
+video_complete,,137,3,Engagement video
+clic_mail_phone,LEAD,132,6,Clic mail/tel = Lead
+purchase,CONVERSION,131,1,Achat = Conversion
+email_click,LEAD,114,2,Clic email = Lead
+file_download,,79,4,Telechargement
+tchat_lead,LEAD,72,3,Lead chat explicite
+Lead_Page,LEAD,64,1,Page Lead
+search,,57,1,Recherche
+social_click,,46,1,Social
+configure_cta_click,,39,1,CTA
+formulaire_lead,LEAD,40,4,Lead formulaire explicite
+social_media_clicks,,36,1,Social
+contact_lead,LEAD,24,2,Lead contact explicite
+filter_removed,,21,1,Navigation
+clic_social,,20,2,Social
+email_form_submission,LEAD,18,1,Email soumis = Lead
+click_to_call,LEAD,15,1,Appel = Lead
+phone_click,LEAD,14,1,Tel = Lead
+Contact,LEAD,13,1,Contact
+clic_tel,LEAD,9,1,Tel = Lead
+clic_mail,LEAD,7,1,Mail = Lead
+add_to_wishlist,,7,1,Wishlist
+remove_from_wishlist,,7,1,Wishlist
+social_link_click,,7,1,Social
+contact_forms,LEAD,7,1,Formulaire contact = Lead
+assets_download,,6,1,Telechargement
