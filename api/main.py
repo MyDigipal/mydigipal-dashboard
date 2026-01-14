@@ -1988,16 +1988,17 @@ def get_ga4_analytics():
         ])
 
         # 1. Timeline data from traffic_daily (aggregate by date)
+        # Note: All fields are STRING in BQ schema, must CAST to numeric for aggregation
         timeline_query = """
         SELECT
             date,
-            SUM(sessions) as sessions,
-            SUM(totalUsers) as users,
-            SUM(newUsers) as new_users,
-            SUM(screenPageViews) as pageviews,
-            SUM(engagedSessions) as engaged_sessions,
-            SUM(bounces) as bounces,
-            AVG(averageSessionDuration) as avg_session_duration
+            SUM(SAFE_CAST(sessions AS INT64)) as sessions,
+            SUM(SAFE_CAST(totalUsers AS INT64)) as users,
+            SUM(SAFE_CAST(newUsers AS INT64)) as new_users,
+            SUM(SAFE_CAST(screenPageViews AS INT64)) as pageviews,
+            SUM(SAFE_CAST(engagedSessions AS INT64)) as engaged_sessions,
+            AVG(SAFE_CAST(bounceRate AS FLOAT64)) as bounce_rate,
+            AVG(SAFE_CAST(averageSessionDuration AS FLOAT64)) as avg_session_duration
         FROM `mydigipal.googleAnalytics_v2.traffic_daily`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
@@ -2012,11 +2013,10 @@ def get_ga4_analytics():
         total_users = sum(row['users'] or 0 for row in timeline)
         total_pageviews = sum(row['pageviews'] or 0 for row in timeline)
         total_engaged = sum(row['engaged_sessions'] or 0 for row in timeline)
-        total_bounces = sum(row['bounces'] or 0 for row in timeline)
+        avg_bounce_rate = sum(row['bounce_rate'] or 0 for row in timeline) / len(timeline) if timeline else 0
         avg_duration = sum(row['avg_session_duration'] or 0 for row in timeline) / len(timeline) if timeline else 0
 
         engagement_rate = (total_engaged / total_sessions * 100) if total_sessions > 0 else 0
-        bounce_rate = (total_bounces / total_sessions * 100) if total_sessions > 0 else 0
 
         summary = {
             'sessions': total_sessions,
@@ -2025,7 +2025,7 @@ def get_ga4_analytics():
             'pageviews': total_pageviews,
             'engaged_sessions': total_engaged,
             'engagement_rate': round(engagement_rate, 1),
-            'bounce_rate': round(bounce_rate, 1),
+            'bounce_rate': round(avg_bounce_rate, 1),
             'avg_session_duration': round(avg_duration, 0),
             'pages_per_session': round(total_pageviews / total_sessions, 2) if total_sessions > 0 else 0
         }
@@ -2034,10 +2034,10 @@ def get_ga4_analytics():
         channels_query = """
         SELECT
             sessionDefaultChannelGroup as channel,
-            SUM(sessions) as sessions,
-            SUM(totalUsers) as users,
-            SUM(engagedSessions) as engaged_sessions,
-            AVG(averageSessionDuration) as avg_duration
+            SUM(SAFE_CAST(sessions AS INT64)) as sessions,
+            SUM(SAFE_CAST(totalUsers AS INT64)) as users,
+            SUM(SAFE_CAST(engagedSessions AS INT64)) as engaged_sessions,
+            AVG(SAFE_CAST(averageSessionDuration AS FLOAT64)) as avg_duration
         FROM `mydigipal.googleAnalytics_v2.traffic_daily`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
@@ -2052,8 +2052,8 @@ def get_ga4_analytics():
         SELECT
             eventName,
             event_category,
-            SUM(eventCount) as count,
-            SUM(eventValue) as value
+            SUM(SAFE_CAST(eventCount AS INT64)) as count,
+            SUM(SAFE_CAST(conversions AS INT64)) as conversions
         FROM `mydigipal.googleAnalytics_v2.events`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
@@ -2076,14 +2076,13 @@ def get_ga4_analytics():
         pages_query = """
         SELECT
             pagePath as path,
-            pageTitle as title,
-            SUM(screenPageViews) as views,
-            SUM(sessions) as sessions,
-            AVG(averageSessionDuration) as avg_duration
+            SUM(SAFE_CAST(screenPageViews AS INT64)) as views,
+            SUM(SAFE_CAST(sessions AS INT64)) as sessions,
+            AVG(SAFE_CAST(averageSessionDuration AS FLOAT64)) as avg_duration
         FROM `mydigipal.googleAnalytics_v2.pages`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
-        GROUP BY pagePath, pageTitle
+        GROUP BY pagePath
         ORDER BY views DESC
         LIMIT 20
         """
@@ -2094,8 +2093,8 @@ def get_ga4_analytics():
         devices_query = """
         SELECT
             deviceCategory as device,
-            SUM(totalUsers) as users,
-            SUM(sessions) as sessions
+            SUM(SAFE_CAST(totalUsers AS INT64)) as users,
+            SUM(SAFE_CAST(sessions AS INT64)) as sessions
         FROM `mydigipal.googleAnalytics_v2.audience`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
@@ -2109,8 +2108,8 @@ def get_ga4_analytics():
         countries_query = """
         SELECT
             country,
-            SUM(totalUsers) as users,
-            SUM(sessions) as sessions
+            SUM(SAFE_CAST(totalUsers AS INT64)) as users,
+            SUM(SAFE_CAST(sessions AS INT64)) as sessions
         FROM `mydigipal.googleAnalytics_v2.audience`
         WHERE property_name = @property_name
           AND date BETWEEN @date_from AND @date_to
