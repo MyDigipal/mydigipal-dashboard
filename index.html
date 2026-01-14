@@ -485,6 +485,36 @@
     <script>
         // Disable datalabels globally - only enable on specific charts
         Chart.defaults.plugins.datalabels = { display: false };
+
+        // Set global font defaults for Chart.js
+        Chart.defaults.font.family = "'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+        Chart.defaults.font.size = 13;
+        Chart.defaults.font.weight = '500';
+
+        // Legend font settings
+        Chart.defaults.plugins.legend.labels.font = {
+            family: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+            size: 13,
+            weight: '500'
+        };
+        Chart.defaults.plugins.legend.labels.padding = 16;
+
+        // Tooltip font settings
+        Chart.defaults.plugins.tooltip.titleFont = {
+            family: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+            size: 14,
+            weight: '600'
+        };
+        Chart.defaults.plugins.tooltip.bodyFont = {
+            family: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+            size: 13,
+            weight: '500'
+        };
+
+        // Scale/axis font settings
+        Chart.defaults.scales = Chart.defaults.scales || {};
+        Chart.defaults.scales.linear = Chart.defaults.scales.linear || {};
+        Chart.defaults.scales.category = Chart.defaults.scales.category || {};
     </script>
     <script src="js/config.js"></script>
     <script src="js/auth.js"></script>

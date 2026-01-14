@@ -86,15 +86,21 @@ class ChartManager {
           intersect: false
         },
         plugins: {
-          legend: { position: 'top' },
+          legend: {
+            position: 'top',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '500' },
+              padding: 16
+            }
+          },
           tooltip: {
             mode: 'index',
             intersect: false,
             backgroundColor: 'rgba(33, 31, 84, 0.95)',
             borderColor: '#666',
             borderWidth: 1,
-            titleFont: { size: 14, weight: 'bold' },
-            bodyFont: { size: 13 },
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             padding: 12,
             callbacks: {
               label: ctx => {
@@ -105,6 +111,10 @@ class ChartManager {
             }
           },
           datalabels: { display: false }
+        },
+        scales: {
+          x: { ticks: { font: { family: "'Inter', sans-serif", size: 12 } } },
+          y: { ticks: { font: { family: "'Inter', sans-serif", size: 12 } } }
         }
       }
     });
@@ -164,15 +174,21 @@ class ChartManager {
           intersect: false
         },
         plugins: {
-          legend: { position: 'top' },
+          legend: {
+            position: 'top',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '500' },
+              padding: 16
+            }
+          },
           tooltip: {
             mode: 'index',
             intersect: false,
             backgroundColor: 'rgba(33, 31, 84, 0.95)',
             borderColor: '#666',
             borderWidth: 1,
-            titleFont: { size: 14, weight: 'bold' },
-            bodyFont: { size: 13 },
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             padding: 12,
             callbacks: {
               label: ctx => {
@@ -184,8 +200,10 @@ class ChartManager {
           }
         },
         scales: {
+          x: { ticks: { font: { family: "'Inter', sans-serif", size: 12 } } },
           y: {
             ticks: {
+              font: { family: "'Inter', sans-serif", size: 12 },
               callback: value => '£' + value.toLocaleString('en-GB')
             }
           }
@@ -226,8 +244,16 @@ class ChartManager {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right' },
+          legend: {
+            position: 'right',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '500' },
+              padding: 12
+            }
+          },
           tooltip: {
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             callbacks: {
               label: ctx => ctx.label + ': ' + ctx.raw.toLocaleString('en-GB') + 'h'
             }
@@ -239,7 +265,7 @@ class ChartManager {
               return percent + '%';
             },
             color: '#fff',
-            font: { weight: 'bold', size: 12 }
+            font: { family: "'Inter', sans-serif", weight: 'bold', size: 13 }
           }
         }
       }
@@ -290,15 +316,21 @@ class ChartManager {
           intersect: false
         },
         plugins: {
-          legend: { position: 'top' },
+          legend: {
+            position: 'top',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '500' },
+              padding: 12
+            }
+          },
           tooltip: {
             mode: 'index',
             intersect: false,
             backgroundColor: 'rgba(33, 31, 84, 0.95)',
             borderColor: '#666',
             borderWidth: 1,
-            titleFont: { size: 14, weight: 'bold' },
-            bodyFont: { size: 13 },
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             padding: 12,
             callbacks: {
               label: ctx => `${ctx.dataset.label}: ${ctx.raw}h`
@@ -307,8 +339,8 @@ class ChartManager {
           datalabels: { display: false }
         },
         scales: {
-          x: { stacked: true },
-          y: { stacked: true }
+          x: { stacked: true, ticks: { font: { family: "'Inter', sans-serif", size: 12 } } },
+          y: { stacked: true, ticks: { font: { family: "'Inter', sans-serif", size: 12 } } }
         }
       }
     });
@@ -350,8 +382,16 @@ class ChartManager {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { position: 'right' },
+          legend: {
+            position: 'right',
+            labels: {
+              font: { family: "'Inter', sans-serif", size: 13, weight: '500' },
+              padding: 12
+            }
+          },
           tooltip: {
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             callbacks: {
               label: ctx => ctx.label + ': ' + ctx.raw.toFixed(1) + 'h'
             }
@@ -363,7 +403,7 @@ class ChartManager {
               return percent + '%';
             },
             color: '#fff',
-            font: { weight: 'bold', size: 12 }
+            font: { family: "'Inter', sans-serif", weight: 'bold', size: 13 }
           }
         }
       }
@@ -407,6 +447,8 @@ class ChartManager {
         plugins: {
           legend: { display: false },
           tooltip: {
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             callbacks: {
               label: ctx => ctx.raw.toFixed(1) + '%'
             }
@@ -416,7 +458,7 @@ class ChartManager {
             align: 'end',
             formatter: (value) => value.toFixed(0) + '%',
             color: '#211F54',
-            font: { weight: 'bold', size: 11 }
+            font: { family: "'Inter', sans-serif", weight: 'bold', size: 12 }
           }
         },
         scales: {
@@ -424,8 +466,12 @@ class ChartManager {
             beginAtZero: true,
             max: 100,
             ticks: {
+              font: { family: "'Inter', sans-serif", size: 12 },
               callback: value => value + '%'
             }
+          },
+          y: {
+            ticks: { font: { family: "'Inter', sans-serif", size: 12 } }
           }
         }
       }
@@ -467,6 +513,8 @@ class ChartManager {
         plugins: {
           legend: { display: false },
           tooltip: {
+            titleFont: { family: "'Inter', sans-serif", size: 14, weight: '600' },
+            bodyFont: { family: "'Inter', sans-serif", size: 13 },
             callbacks: {
               label: ctx => '£' + ctx.raw.toLocaleString('en-GB')
             }
@@ -476,15 +524,19 @@ class ChartManager {
             align: 'end',
             formatter: (value) => '£' + (value / 1000).toFixed(0) + 'k',
             color: '#211F54',
-            font: { weight: 'bold', size: 11 }
+            font: { family: "'Inter', sans-serif", weight: 'bold', size: 12 }
           }
         },
         scales: {
           x: {
             beginAtZero: true,
             ticks: {
+              font: { family: "'Inter', sans-serif", size: 12 },
               callback: value => '£' + (value / 1000).toFixed(0) + 'k'
             }
+          },
+          y: {
+            ticks: { font: { family: "'Inter', sans-serif", size: 12 } }
           }
         }
       }
